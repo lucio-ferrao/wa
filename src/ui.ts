@@ -12,7 +12,7 @@ import { logger, uiLog } from './log.js'
 import { linksIn, showLinks } from './links.js'
 import { patchBlessedDraw, patchBlessedUnicode } from './unicode.js'
 import type { TermCaps } from './term.js'
-import { emojify, completeEmoji } from './emoji.js'
+import { emojify, completeEmoji, emoticonAt } from './emoji.js'
 import { enableKittyKeyboard } from './kittykeys.js'
 import { enableBracketedPaste } from './paste.js'
 import { Hearts, reaction, emojiOnly } from './hearts.js'
@@ -110,7 +110,7 @@ function theme(bg: string | null): { dark: boolean; selected: number } {
 /**
  * A key applied to a text with a cursor (in graphemes): arrows, Home/End, Backspace/Delete, Ctrl-U (everything),
  * Shift+Backspace (previous word, only on terminals with the Kitty keyboard protocol), and typed characters,
- * inserted at the cursor, with :codes: and smileys swapped for the emoji as soon as they're complete. Returns null
+ * inserted at the cursor, with :codes: swapped for the emoji as soon as they're complete. Returns null
  * if the key isn't an editing key.
  */
 function edit(value: string, cursor: number, k: string, ch: string, key: blessed.Widgets.Events.IKeyEventArg): { value: string; cursor: number } | null {
@@ -126,9 +126,9 @@ function edit(value: string, cursor: number, k: string, ch: string, key: blessed
   if (k === 'C-u') return join([], [])
   if (k === 'S-backspace') return join(graphemes(chars.slice(0, at).join('').replace(/\S*\s*$/, '')), chars.slice(at))
   if (ch && !key.ctrl && !key.meta && ch >= ' ' && ch !== '\x7f') {
-    // On closing a :code: or isolating a smiley with space/punctuation, the text is swapped for the emoji right away.
+    // On closing a :code:, the text is swapped for the emoji right away.
     const before = chars.slice(0, at).join('') + ch
-    return join(graphemes(/[:\s.,!?]/.test(ch) ? emojify(before) : before), chars.slice(at))
+    return join(graphemes(ch === ':' ? emojify(before) : before), chars.slice(at))
   }
   return null
 }
@@ -143,11 +143,15 @@ export class Ui {
   private picker: blessed.Widgets.ListElement
   /** Notice of a new message in another chat: a line with a background, sitting over its tab in the bar. */
   private toast: blessed.Widgets.BoxElement
-  /** Emoji suggestions for the :prefix before the cursor: the box above the input, the options, the chosen one, and where the prefix starts. */
+  /**
+   * Emoji suggestions for the :prefix or the smiley before the cursor: the box above the input, the options (each
+   * with what it shows beside the emoji and the length of the text it replaces), and the chosen one.
+   */
   private suggest: blessed.Widgets.BoxElement
-  private suggestions: { emoji: string; code: string }[] = []
+  private suggestions: { emoji: string; code: string; length: number }[] = []
   private suggestIndex = 0
-  private suggestStart = 0
+  /** Whether the suggestions are for a smiley: Enter then sends it as typed, and only Tab or → swap it. */
+  private suggestFace = false
   /** Local model suggestion for the text `text` (continuation or correction), requested 150 ms after the last keystroke and shown for 4 s. */
   private ghost: { text: string; s: Suggestion } | undefined
   /** What floats above the input (its key: a correction's place and text, or the word), and the one whose 10 s ran out. */
@@ -943,14 +947,15 @@ export class Ui {
       if (ch === '/' && !this.inputValue) return this.openPicker()
       // Shift+Enter (only with the Kitty protocol, which distinguishes it) or Ctrl+J start a new line in the message.
       if (k === 'S-return' || k === 'linefeed') return this.paste('\n')
-      // With emoji suggestions open, ↑/↓ choose and Enter or Tab accept; everything else keeps typing and refines them.
+      // With emoji suggestions open, ↑/↓ choose and Enter or Tab accept (Enter not after a whole smiley, where it
+      // sends the message as typed); everything else keeps typing and refines them.
       if (this.suggestions.length) {
         if (k === 'up' || k === 'down') {
           this.suggestIndex = (this.suggestIndex + (k === 'up' ? -1 : 1) + this.suggestions.length) % this.suggestions.length
           this.drawSuggestions()
           return this.screen.render()
         }
-        if (k === 'enter' || k === 'return') return this.acceptSuggestion()
+        if ((k === 'enter' || k === 'return') && !this.suggestFace) return this.acceptSuggestion()
       }
       if (k === 'enter' || k === 'return') { const v = this.inputValue; if (v) this.noteWriting(); this.inputValue = ''; this.cursor = 0; this.stopComposing(); this.updateSuggestions(); this.drawInput(); this.screen.render(); return void this.submit(v) }
       // Right after accepting a suggestion that ended mid-word, a letter or digit starts a new word: it goes in
@@ -1930,17 +1935,23 @@ export class Ui {
 
   /**
    * A `:` right before the cursor opens the list with the basic smileys (":)", ":D"...); what's typed after it
-   * narrows it to the smileys and the emojis whose name starts that way.
+   * narrows it to the smileys and the emojis whose name starts that way. A whole smiley before the cursor, on its
+   * own after a space or at the start, puts its emoji first, those that don't start with ":" too ("<3", ";)", "xD").
    */
   private updateSuggestions(ghostDelay = 150) {
     const chars = graphemes(this.inputValue)
     const at = Math.min(this.cursor, chars.length)
-    const m = /(^|[^\w:]):([^\s:]*)$/.exec(chars.slice(0, at).join(''))
-    const options = m ? completeEmoji(m[2]!).slice(0, 5) : []
+    const before = chars.slice(0, at).join('')
+    const face = emoticonAt(before)
+    const m = /(^|[^\w:]):([^\s:]*)$/.exec(before)
+    const options = [
+      ...face ? [{ emoji: face.emoji, code: face.face, length: graphemes(face.face).length }] : [],
+      ...(m ? completeEmoji(m[2]!) : []).map(o => ({ ...o, length: graphemes(`:${m![2]}`).length })),
+    ].filter((o, i, all) => all.findIndex(p => p.emoji === o.emoji) === i).slice(0, 5)
     const same = options.length === this.suggestions.length && options.every((o, i) => o.emoji === this.suggestions[i]!.emoji)
     this.suggestions = options
+    this.suggestFace = !!face
     if (!same) this.suggestIndex = 0
-    if (m) this.suggestStart = at - graphemes(`:${m[2]}`).length
     this.drawSuggestions()
     this.scheduleGhost(ghostDelay)
   }
@@ -2094,12 +2105,12 @@ export class Ui {
     this.suggest.show()
   }
 
-  /** The `:prefix` gives way to the chosen emoji, followed by a space. */
+  /** The `:prefix` or the smiley gives way to the chosen emoji, followed by a space. */
   private acceptSuggestion() {
     const o = this.suggestions[this.suggestIndex]!
     const chars = graphemes(this.inputValue)
     const at = Math.min(this.cursor, chars.length)
-    const before = [...chars.slice(0, this.suggestStart), o.emoji, ' ']
+    const before = [...chars.slice(0, at - o.length), o.emoji, ' ']
     this.inputValue = before.join('') + chars.slice(at).join('')
     this.cursor = before.length
     this.suggestions = []

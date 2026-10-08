@@ -246,19 +246,31 @@ const EMOTICONS: [string[], string][] = [
 const EMOTICON_MAP = new Map<string, string>()
 for (const [faces, emoji] of EMOTICONS) for (const f of faces) EMOTICON_MAP.set(f, emoji)
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-const EMOTICON_RE = new RegExp(`(^|\\s)(${[...EMOTICON_MAP.keys()].sort((a, b) => b.length - a.length).map(escapeRe).join('|')})(?=\\s|$|[.,!?])`, 'g')
+/** Longest first, so ">:(" is found before ":(". */
+const FACES = [...EMOTICON_MAP.keys()].sort((a, b) => b.length - a.length)
+const EMOTICON_RE = new RegExp(`(^|\\s)(${FACES.map(escapeRe).join('|')})(?=\\s|$|[.,!?])`, 'g')
+
+/** The classic smiley ending `text`, on its own after a space (or at the start), and the emoji it stands for. */
+export function emoticonAt(text: string): { face: string; emoji: string } | null {
+  for (const face of FACES) {
+    if (!text.endsWith(face)) continue
+    const pre = text.slice(0, -face.length)
+    if (!pre || /\s$/.test(pre)) return { face, emoji: EMOTICON_MAP.get(face)! }
+  }
+  return null
+}
 
 /** Replaces classic smileys (":)", ":-P", ":*") with the corresponding emoji; everything else stays as is. */
 export function emoticonify(text: string): string {
   return text.replace(EMOTICON_RE, (_m, pre: string, face: string) => `${pre}${EMOTICON_MAP.get(face)}`)
 }
 
-/** Replaces :name: codes and classic smileys with the corresponding emoji; everything else stays as is. */
+/** Replaces :name: codes with the corresponding emoji; everything else, smileys included, stays as is. */
 export function emojify(text: string): string {
-  return emoticonify(text.replace(CODE_RE, (m, pre: string, code: string) => {
+  return text.replace(CODE_RE, (m, pre: string, code: string) => {
     const e = TABLE[code.toLowerCase()]
     return e ? `${pre}${e}` : m
-  }))
+  })
 }
 
 export const emojiCodes = Object.keys(TABLE)
