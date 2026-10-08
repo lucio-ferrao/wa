@@ -58,11 +58,14 @@ const AMBIGUOUS = /^\p{Extended_Pictographic}️$/u
 const ANGLES: Record<string, boolean> = Object.fromEntries([...'┘┐┌└┼├┤┴┬│─'].map(c => [c, true]))
 
 /**
- * To blessed (see above) "❤️" has width 2, but some terminals, Termius among them, give it 1: the cursor ends up one
- * cell behind where blessed thinks it is, and whatever blessed writes next on the same line, even the space that
- * pads it, lands one column to the left and covers the right half of the emoji. blessed's `draw` is rewritten with
- * a patch: right after one of those emoji the cursor moves, in absolute terms, to the cell blessed assumes, so the
- * cell next to the emoji is never touched, on terminals that measure 1 and on those that measure 2.
+ * To blessed (see above) "❤️" has width 2, but some terminals, Termius and Apple's Terminal among them, give it 1:
+ * the cursor ends up one cell behind where blessed thinks it is, and whatever blessed writes next on the same line,
+ * even the space that pads it, lands one column to the left and covers the right half of the emoji. blessed's
+ * `draw` is rewritten with a patch: right after one of those emoji the cursor moves, in absolute terms, to the cell
+ * blessed assumes, so nothing written after it touches the emoji, on terminals that measure 1 and on those that
+ * measure 2. That second cell, which blessed counts as covered by the emoji, is blanked just before it: a terminal
+ * that measures 1 doesn't overwrite it, and what was there showed through under the emoji's right half (the "c" of
+ * ":coracao" once the emoji took its place).
  */
 export function patchBlessedDraw() {
   const Screen = (blessed as unknown as { Screen: { prototype: { draw: (start: number, end: number) => void; _waPatched?: boolean } } }).Screen
@@ -71,7 +74,8 @@ export function patchBlessedDraw() {
   const src = Screen.prototype.draw.toString()
   const marker = 'out += ch;\n      attr = data;'
   if (!src.includes(marker)) throw new Error('blessed: draw changed; the ambiguous-width emoji patch does not apply')
-  const patched = src.replace(marker, 'out += ch;\n      if (ambiguous(ch)) out += this.tput.cup(y, x + 1);\n      attr = data;')
+  // Here `x` is already the emoji's second cell (blessed's draw skips it right after a wide character).
+  const patched = src.replace(marker, 'if (ambiguous(ch)) out += this.tput.cup(y, x) + " " + this.tput.cup(y, x - 1) + ch + this.tput.cup(y, x + 1);\n      else out += ch;\n      attr = data;')
   const u = (blessed as unknown as { unicode: BlessedUnicode }).unicode
   Screen.prototype.draw = new Function('unicode', 'angles', 'ambiguous', `return ${patched}`)(u, ANGLES, (ch: string) => AMBIGUOUS.test(ch))
 }
