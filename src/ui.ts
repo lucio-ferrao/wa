@@ -79,10 +79,14 @@ const myTime = (ts: number, status: number) => fmtTime(ts).replace(':', status >
 const EYES_MAX = 5
 /** How many of a chat's latest messages the panel draws at first, and how many more each scroll past the top adds. */
 const PAGE = 300
-/** The chat list's first column, for when the last message was and the unread count ("12 set 21:35"). */
-const WHEN_COLS = 12
-/** The chat list's widest, in columns: past it, on a wide screen, a chat's photo and number would stray from its name. */
-const LIST_COLS = 80
+/**
+ * The country calling code a phone number starts with. The codes are prefix-free (E.164), and only these take one or
+ * two digits: any other is three.
+ */
+const CALLING_CODE = /^(?:1|7|2[07]|3[0-469]|4[013-9]|5[1-8]|6[0-6]|8[1246]|9[0-58])/
+const callingCode = (digits: string) => CALLING_CODE.exec(digits)?.[0] ?? digits.slice(0, 3)
+/** The chat list's widest, in columns: past it, on a wide screen, when a chat's last message was would stray from its name. */
+const LIST_COLS = 60
 /** How long, in seconds, WhatsApp lets a message be edited after it was sent. */
 const EDIT_WINDOW = 15 * 60
 /** A message's text without the "(editada)" line an edit leaves at its end. */
@@ -2056,33 +2060,29 @@ export class Ui {
   }
 
   /**
-   * A chat's two rows in the list, as wide as the list paints the selected row, the photo (avatarCells) in the last
-   * four cells of both. On the first, when the last message was (fmtWhenAt) in a column of its own, its name in the
-   * colour it has as a sender in groups (bold with unread messages, the filter's words underlined), 👀 while the
-   * person is online and "·" when it has a tab. On the second, the unread count, in WhatsApp's green, under the time,
-   * the "about" of the person's profile (chatAbout) under the name, or "a escrever…" while someone types there, and
-   * against the photo the person's number or the group's size (chatNumber). The second row comes in its parts (see
+   * A chat's two rows in the list, the photo (avatarCells) in the first four cells of both. On the first, its name in
+   * the colour it has as a sender in groups (bold with unread messages, the filter's words underlined), 👀 while the
+   * person is online, "·" when it has a tab, and at the right edge when the last message was (fmtWhenAt). On the
+   * second, under the name, the unread count, in WhatsApp's green, or without unread messages the person's number or
+   * the group's size (chatNumber), and "a escrever…" while someone types there. The second row comes in its parts (see
    * pickerParts).
    */
   private pickerRows(c: ChatRow, width: number, slot: number): [string, [string, boolean][]] {
-    const full = width + 1
     const [top, bottom] = this.avatarCells(c, slot)
     const color = colorFor(c.jid)
     const eyes = !c.is_group && this.online.has(c.jid) && this.ruleChar === '─' ? ' 👀' : ''
     const open = this.tabs.includes(c.jid) ? ' ·' : ''
     const ts = this.pickerLast.get(c.jid)?.ts ?? c.last_ts
-    const when = faint(esc((ts ? fmtWhenAt(ts) : '').padStart(WHEN_COLS)))
-    const name = truncate(chatName(c.jid), Math.max(4, full - WHEN_COLS - 1 - 4 - 1 - strWidth(eyes) - strWidth(open)))
+    const when = ts ? faint(esc(fmtWhenAt(ts))) : ''
+    const name = truncate(chatName(c.jid), Math.max(4, width - 4 - 1 - visibleWidth(when) - 1 - strWidth(eyes) - strWidth(open)))
     const named = `{${color}-fg}${this.underlineMatches(name)}{/${color}-fg}`
-    const left = `${when} ${c.unread > 0 ? `{bold}${named}{/bold}` : named}${eyes}${dim(open)}`
-    const first = `${left}${' '.repeat(Math.max(1, full - 4 - visibleWidth(left)))}${top}`
+    const left = `${top} ${c.unread > 0 ? `{bold}${named}{/bold}` : named}${eyes}${dim(open)}`
+    const first = `${left}${' '.repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(when)))}${when}`
     const count = c.unread > 0 ? t('unreadCount', c.unread) : ''
-    const unread = count ? `{${this.green}-fg}{bold}${esc(count.padStart(WHEN_COLS))}{/bold}{/${this.green}-fg}` : ' '.repeat(WHEN_COLS)
-    const number = `${dim(esc(this.chatNumber(c)))} `
-    const room = Math.max(0, full - WHEN_COLS - 1 - 4 - visibleWidth(number) - 1)
-    const about = this.typing.has(c.jid) ? `{${this.green}-fg}${spinnerFrame()} ${esc(t('typingShort'))}{/${this.green}-fg}` : dim(esc(truncate(this.chatAbout(c), room)))
-    const text = `${unread} ${about}`
-    return [first, [[`${text}${' '.repeat(Math.max(1, full - 4 - visibleWidth(text) - visibleWidth(number)))}${number}`, true], [bottom, false]]]
+    const unread = count ? `{${this.green}-fg}{bold}${esc(count)}{/bold}{/${this.green}-fg}` : ''
+    const typing = this.typing.has(c.jid) ? `{${this.green}-fg}${spinnerFrame()} ${esc(t('typingShort'))}{/${this.green}-fg}` : ''
+    const number = this.chatNumber(c)
+    return [first, [[bottom, false], [` ${[unread || (number && dim(esc(number))), typing].filter(Boolean).join('  ')}`, true]]]
   }
 
   /**
@@ -2107,25 +2107,24 @@ export class Ui {
   }
 
   /**
-   * What the list says of a chat against its photo, on its second row: for a person, their number (by the number a lid
-   * stands for when known; nothing with only a lid); for a group, how many members it has.
+   * What the list says of a chat under its name: for a person, their number (by the number a lid stands for when
+   * known; nothing with only a lid), without the country code when it's the same as mine; for a group, how many
+   * members it has.
    */
   private chatNumber(c: ChatRow): string {
     if (c.is_group) { const p = this.profiles.get(c.jid); return p?.members != null ? t('groupMembers', p.members) : t('groupOnly') }
     const pn = c.jid.endsWith('@lid') ? store.getPn(c.jid) : c.jid
     const digits = pn ? jidUser(pn) : ''
-    return /^351\d{9}$/.test(digits) ? `+351 ${digits.slice(3, 6)} ${digits.slice(6, 9)} ${digits.slice(9)}` : digits ? `+${digits}` : ''
+    if (!digits) return ''
+    const code = callingCode(digits), national = digits.slice(code.length)
+    const pt = code === '351' && national.length === 9 ? `${national.slice(0, 3)} ${national.slice(3, 6)} ${national.slice(6)}` : ''
+    if (code === callingCode(jidUser(this.wa.me))) return pt || national
+    return pt ? `+351 ${pt}` : `+${digits}`
   }
 
-  /** What the list says of a chat under its name: the "about" of the person's profile. */
-  private chatAbout(c: ChatRow): string {
-    return this.profiles.get(c.jid)?.about?.replace(/\s+/g, ' ').trim() ?? ''
-  }
-
-  /** Whether a column of the list's rows (from the list's text start) is on a chat's photo: its last four. */
+  /** Whether a column of the list's rows (from the list's text start) is on a chat's photo: its first four. */
   private onPhoto(col: number): boolean {
-    const full = num(this.picker.width) - num(this.picker.iwidth)
-    return col >= full - 4 && col < full
+    return col >= 0 && col < 4
   }
 
   /**
@@ -3448,7 +3447,7 @@ export class Ui {
   private visibleAvatars(): { path: string; d: Decoded; x: number; y: number }[] {
     const base = (this.picker as unknown as { childBase: number }).childBase
     const rows = num(this.picker.height) - num(this.picker.iheight)
-    const x = num(this.picker.aleft) + num(this.picker.ileft) + num(this.picker.width) - num(this.picker.iwidth) - 4, y = num(this.picker.atop) + num(this.picker.itop)
+    const x = num(this.picker.aleft) + num(this.picker.ileft), y = num(this.picker.atop) + num(this.picker.itop)
     return [...this.pickerAvatars].filter(([i]) => i >= base && i + 1 < base + rows).map(([i, a]) => ({ ...a, x, y: y + i - base }))
   }
 
