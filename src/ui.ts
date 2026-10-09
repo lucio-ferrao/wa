@@ -215,27 +215,13 @@ export class Ui {
   private floatOff = ''
   /** The correction floating right above the word it replaces. */
   private ghostBox!: blessed.Widgets.BoxElement
-  /** The reply, reaction or edit header, floating on the line above the input. */
-  private headerBox!: blessed.Widgets.BoxElement
-  /** The faint rule above the input, across the whole width, which also shows when this device is online. */
+  /** The input box's top border, with the name of the chat the text goes to (drawBorder). */
   private ruleTop!: blessed.Widgets.BoxElement
   private ruleChar = '─'
-  /**
-   * Where the prompt's name sits (screen column and width; the mark's, for a chat with no name), how many 👀 go on
-   * the rule above it and whether the typing spinner goes beside them; null for none.
-   */
-  private promptName: { col: number; width: number; eyes: number; typing: boolean } | null = null
-  /**
-   * The 👀 over the name, each in a small box of its own floating over the rule: blessed leaves the last cell of a
-   * line blank when it holds a wide character, which inside the rule lost its last dash, and counts each emoji one
-   * cell too wide, which cut the third of three in one box. One per box, " 👀" four cells wide, every three cells:
-   * each box's blank last cell lies under the next one's leading space, so the rule reads "── 👀 👀 👀 ──".
-   */
-  private eyesBoxes: blessed.Widgets.BoxElement[] = []
-  /** Mine, near the rule's right end while this device shows as online: a box of the same kind over a blank stretch. */
-  private myEyes!: blessed.Widgets.BoxElement
-  /** The braille spinner while the person of the chat types, right after their 👀 (" ⠋ ", a space on either side). */
-  private typingBox!: blessed.Widgets.BoxElement
+  /** What the border says after the chat's name: the reply, reaction or edit in progress, or the search's (drawInput). */
+  private borderHeader: string | null = null
+  /** The columns of the chat's name on the border, where a click opens the chat list. */
+  private borderName = { x0: 0, x1: 0 }
   /** Per group, how many of its followed members are online, for as many 👀 (up to EYES_MAX). */
   private groupOnline = new Map<string, number>()
   private ghostTimer: NodeJS.Timeout | undefined
@@ -379,10 +365,8 @@ export class Ui {
   /** What's left unsent in each chat: switching tabs swaps the input, so nothing goes to the wrong person. */
   private drafts = new Map<string, { value: string; cursor: number }>()
   private reactTo: MessageRow | null = null
-  /** Columns the prompt takes on the input's first line ("Rita ❯ "), and the continuation lines' indent. */
-  private promptWidth = 2
-  /** How wide the chat's name is at the start of the prompt (0 with none), where a click opens the chat list. */
-  private promptNameWidth = 0
+  /** Columns the box's left side takes on each of the input's lines ("╰─ ", "│  "), before the text. */
+  private promptWidth = 3
   private images: ImageSlot[] = []
   /** What the model says each image shows (by chat and message), null when it gave nothing; the one on its way. */
   private descriptions = new Map<string, string | null>()
@@ -435,7 +419,7 @@ export class Ui {
   private get fixed(): boolean { return !!this.wanted || inHerdr }
   /** Input lines: one at minimum, growing with the text up to half the screen. */
   private inputRows = 1
-  /** Lines occupied at the bottom: the input and the rule above it. */
+  /** Lines occupied at the bottom: the input box, its top border and the input's lines. */
   private get bottom(): number { return this.inputRows + 1 }
   /** Lines occupied at the top: the tab bar (1), which doesn't exist in single-chat mode. */
   private get barRows(): number { return this.fixed ? 0 : 1 }
@@ -493,7 +477,8 @@ export class Ui {
     this.disablePaste = enableBracketedPaste((this.screen.program as unknown as { input: Parameters<typeof enableBracketedPaste>[0] }).input, s => program._write(s))
     logger.info({ caps, images: this.mode, dark: this.dark, term: process.env.TERM }, 'terminal')
 
-    // Layout: the tab bar at the top with status on the right, messages at full width, input in one line at the bottom, growing with the text.
+    // Layout: the tab bar at the top with status on the right, messages at full width, and at the bottom the input in a
+    // box like oh-my-pi's, the chat's name on its top border, the text on its bottom line, growing upwards with it.
     this.tabsBar = blessed.box({
       parent: this.screen, top: 0, left: 0, width: '100%', height: 1, tags: true, mouse: true,
     })
@@ -504,17 +489,14 @@ export class Ui {
       tags: true, wrap: false, scrollable: true, alwaysScroll: true, mouse: true,
     }) as ClinesBox
     this.input = blessed.box({
-      parent: this.screen, top: `100%-${this.bottom - 1}`, left: 0, right: 0, height: this.inputRows, padding: { left: 1 },
-      tags: true, mouse: true,
+      parent: this.screen, top: `100%-${this.bottom - 1}`, left: 0, right: 0, height: this.inputRows,
+      // Each line is laid out to the box's width already, its sides at both ends: blessed is left to wrap nothing.
+      tags: true, mouse: true, wrap: false,
     })
     // Box-drawing only with a UTF-8 locale, like the frames; otherwise plain dashes.
     this.ruleChar = caps.utf8 ? '─' : '-'
-    // No wrapping: the rule fills its width, and with the space around "online" blessed would break it there.
-    this.ruleTop = blessed.box({ parent: this.screen, top: `100%-${this.bottom}`, left: 0, right: 0, height: 1, tags: true, wrap: false })
-    this.eyesBoxes = Array.from({ length: EYES_MAX }, () => blessed.box({ parent: this.screen, top: 0, left: 0, width: 4, height: 1, wrap: false, hidden: true, content: ' 👀' }))
-    this.myEyes = blessed.box({ parent: this.screen, top: 0, left: 0, width: 4, height: 1, wrap: false, hidden: true, content: ' 👀' })
-    this.typingBox = blessed.box({ parent: this.screen, top: 0, left: 0, width: 3, height: 1, wrap: false, hidden: true })
-    this.drawRules()
+    // No wrapping: the border fills its width, and blessed would break it at a space.
+    this.ruleTop = blessed.box({ parent: this.screen, top: `100%-${this.bottom}`, left: 0, right: 0, height: 1, tags: true, wrap: false, mouse: true })
     this.picker = blessed.list({
       parent: this.screen, top: this.barRows, left: 0, right: 0, height: `100%-${this.bottom + this.barRows + 1}`, padding: { left: 1 }, hidden: true,
       tags: true, keys: true, mouse: true,
@@ -537,10 +519,6 @@ export class Ui {
       parent: this.screen, top: '100%-4', left: 0, width: 1, height: 1, tags: true, hidden: true, padding: { left: 1 }, wrap: false, mouse: true,
       style: { bg: this.selectedBg } as unknown as blessed.Widgets.Types.TStyle,
     })
-    // What's being replied to, reacted to or edited, floating over the input's top rule above the text being written,
-    // as wide as its text so the rule carries on around it; the correction below is created after it and so wins the
-    // row when both are there.
-    this.headerBox = blessed.box({ parent: this.screen, top: 0, left: 0, width: 1, height: 1, tags: true, hidden: true, padding: { left: 1 } })
     // The model's correction, floating one line above the word it replaces, with the same background.
     this.ghostBox = blessed.box({
       parent: this.screen, top: 0, left: 0, width: 1, height: 1, tags: true, hidden: true, wrap: false,
@@ -568,7 +546,7 @@ export class Ui {
     // blessed gives the keyboard to whatever is clicked; here it goes only where setFocus puts it. The chat list's
     // arrows work only while the list holds it, and a click on the popup that closes it, on the prompt or on the bar
     // took it away from the list for good.
-    for (const box of [this.tabsBar, this.msgBox, this.input, this.suggest, this.ghostBox, this.fixBox, this.viewerBox]) {
+    for (const box of [this.tabsBar, this.ruleTop, this.msgBox, this.input, this.suggest, this.ghostBox, this.fixBox, this.viewerBox]) {
       (box as unknown as { options: { autoFocus?: boolean } }).options.autoFocus = false
     }
 
@@ -624,7 +602,7 @@ export class Ui {
     this.bindDiagnostics()
     this.screen.on('keypress', (ch: string, key: blessed.Widgets.Events.IKeyEventArg) => this.onKey(ch, key))
     // The picker list has its position and height calculated by hand: it's recomputed when the terminal resizes.
-    this.screen.on('resize', () => { this.dirtyMessages = true; this.dirtyTabs = true; this.drawRules(); if (this.pickerOpen) this.refreshPicker(); this.scheduleRender() })
+    this.screen.on('resize', () => { this.dirtyMessages = true; this.dirtyTabs = true; this.drawBorder(); if (this.pickerOpen) this.refreshPicker(); this.scheduleRender() })
     // The painter looks at blessed's buffers just before it draws, when it's known which rows it will redraw.
     const screen = this.screen as unknown as { draw: (start: number, end: number) => void }
     const draw = screen.draw.bind(screen)
@@ -675,6 +653,11 @@ export class Ui {
       this.lightPickerRows(i)
     })
 
+    // A click on the chat's name on the input box's border opens the chat list, as "/" does.
+    this.ruleTop.on('click', (data: { x: number; y: number }) => {
+      const x = data.x - num(this.ruleTop.aleft)
+      if (!this.pickerOpen && x >= this.borderName.x0 && x < this.borderName.x1) this.openPicker()
+    })
     this.tabsBar.on('click', (data: { x: number; y: number }) => {
       const x = data.x - num(this.tabsBar.aleft)
       const seg = this.segments.find(s => x >= s.x0 && x < s.x1)
@@ -774,9 +757,6 @@ export class Ui {
     // Clicking the input places the cursor at the clicked position (or at the end of the line, if the click lands past the text).
     this.input.on('click', (data: { x: number; y: number }) => {
       if (this.textSelected()) return
-      // A click on the chat's name in the prompt (on its first line, while it's in view) opens the chat list.
-      const nameX = data.x - num(this.input.aleft) - num(this.input.ileft)
-      if (this.inputTop + data.y - num(this.input.atop) - num(this.input.itop) === 0 && nameX >= 0 && nameX < this.promptNameWidth) return this.openPicker()
       if (!this.pickerOpen) this.setFocus('input')
       {
         const x = data.x - num(this.input.aleft) - num(this.input.ileft) - this.promptWidth
@@ -847,7 +827,7 @@ export class Ui {
       if (this.pickerOpen) { this.redrawPickerRows([jid]); this.scheduleRender() }
     })
     this.wa.on('typing', (jid, who) => this.onTyping(jid, who.length > 0))
-    this.wa.on('available', on => { this.available = on; this.drawRules(); this.screen.render() })
+    this.wa.on('available', on => { this.available = on })
     this.wa.on('groupOnline', (jid, n) => {
       this.groupOnline.set(jid, n)
       if (jid === this.current) { this.drawInput(); this.screen.render() }
@@ -962,8 +942,8 @@ export class Ui {
   }
 
   /**
-   * Someone started or stopped typing: a braille spinner turns in their tab, before the name, on the rule above the
-   * active chat's input, in place of the 👀 over the name, and in the window title (in Herdr, the agent's name).
+   * Someone started or stopped typing: a braille spinner turns in their tab, before the name (for the chat in view, by
+   * its name on the input box's border, in place of the first 👀), and in the window title (in Herdr, the agent's name).
    */
   private onTyping(jid: string, active: boolean) {
     if (active) this.typing.add(jid); else this.typing.delete(jid)
@@ -975,14 +955,14 @@ export class Ui {
     this.screen.render()
   }
 
-  /** The spinners' clock, a frame every 80 ms: it runs while anyone is typing, someone else or me (composingJid). */
+  /** The spinners' clock, a frame every 80 ms: it runs while anyone is typing. */
   private syncTypingTimer() {
-    const on = this.typing.size > 0 || !!this.composingJid
+    const on = this.typing.size > 0
     if (on && !this.typingTimer) {
       this.typingTimer = setInterval(() => {
         this.drawTabs()
         this.redrawPickerRows(this.typing)
-        if ((this.current && this.typing.has(this.current)) || this.composingJid) this.drawRules()
+        if (this.current && this.typing.has(this.current)) this.drawBorder()
         this.updateTitle()
         this.screen.render()
       }, 80)
@@ -1609,7 +1589,6 @@ export class Ui {
       this.wa.setComposing(jid, true)
       this.composingJid = jid
       this.composingSentAt = now
-      this.syncTypingTimer()
     }
     if (this.composingTimer) clearTimeout(this.composingTimer)
     this.composingTimer = setTimeout(() => this.stopComposing(), 5000)
@@ -1620,9 +1599,6 @@ export class Ui {
     if (!this.composingJid) return
     this.wa.setComposing(this.composingJid, false)
     this.composingJid = null
-    this.syncTypingTimer()
-    this.drawRules()
-    this.screen.render()
   }
 
   /** Marks this terminal as the most recently used; saves at most every two seconds. */
@@ -1759,15 +1735,17 @@ export class Ui {
     this.segments = []
     for (const t of tabs) {
       const name = truncate(t.name, nameW)
-      // While they type, the spinner takes the space before the name, so the tab keeps its width.
-      const label = `${this.typing.has(t.jid) ? spinnerFrame() : ' '}${esc(name)}`
+      const shown = t.i === this.active && !this.pickerOpen
+      // While they type, the spinner takes the space before the name, so the tab keeps its width; not on the chat in
+      // view, where it turns by the name on the input box's border.
+      const label = `${this.typing.has(t.jid) && !shown ? spinnerFrame() : ' '}${esc(name)}`
       const text = ` ${name}${t.badge ? ' ' + t.badge : ''}${close} `
       const w = strWidth(text)
       const closeX0 = close ? x + w - 2 : x + w
       this.segments.push({ x0: x, x1: x + w, index: t.i, closeX0, closeX1: close ? closeX0 + 1 : closeX0 })
       const badge = t.badge ? ` {${FG.badge}-fg}{bold}${t.badge}{/bold}{/${FG.badge}-fg}` : ''
       const closeMark = close ? ` ${dim('×')}` : ''
-      out += t.i === this.active && !this.pickerOpen
+      out += shown
         ? `{${strong}-fg}{bold}${label}{/bold}{/${strong}-fg}${badge}${closeMark} `
         : `{${FG.tab}-fg}${label}{/${FG.tab}-fg}${badge}${closeMark} `
       x += w
@@ -2683,25 +2661,19 @@ export class Ui {
   }
 
   private drawInput() {
-    // One line at minimum (grows with the text), the prompt on the first ("Rita ❯ ": the chat's first name, in the
-    // colour it has in groups, with 👀 above it on the rule while they're online and a braille spinner beside them
-    // while they type; "Clube de Leitura ❯ " for a group; just "❯ " for a chat known only by a number), text wrapped
-    // by word (never mid-word) and continuation indented under the text.
-    // When the text has more lines than fit, the ones around the cursor are shown, with the cursor on the bottom one whenever possible. With
-    // "chats" open, the same line is used to type the filter. When replying, reacting or editing, the line
-    // above the input says which message (`headerBox`), so the input itself keeps its rows for the text.
-    const w = num(this.input.width) - num(this.input.iwidth) - 1
-    const name = this.pickerOpen || !this.current ? null : shortName(this.current, true)
-    // The prompt ends in "❯", groups and one-to-one chats alike.
-    const mark = '❯'
-    // Searching the chat (Ctrl+F), the line is the search's, after "procurar ❯".
+    // The text is written inside the box, its last line on the box's bottom line ("╰─ … ─╯"), those above it between
+    // "│"s, one line at minimum, growing with the text, wrapped by word (never mid-word). Who it goes to is on the
+    // box's top border (drawBorder). When the text has more lines than fit, the ones around the cursor are shown, with
+    // the cursor on the bottom one whenever possible. With "chats" open, the same line is used to type the filter.
+    // When replying, reacting or editing, the border says which message after the chat's name (borderHeader), so the
+    // input itself keeps its rows for the text.
+    const W = num(this.input.width)
+    const pw = this.promptWidth
+    // Searching the chat (Ctrl+F), the line is the search's, the border saying so.
     const searching = !!this.search && !this.pickerOpen
-    const promptPlain = this.pickerOpen ? `${this.pickerSearch ? t('search') : APP} ${mark} ` : searching ? `${t('search')} ${mark} ` : name ? `${name} ${mark} ` : `${mark} `
-    const pw = this.promptWidth = strWidth(promptPlain)
-    this.promptNameWidth = !this.pickerOpen && !searching && name ? strWidth(name) : 0
     const target = this.pickerOpen || searching ? null : this.replyTo ?? this.reactTo ?? this.editing
     const found = searching && this.search!.query ? (this.search!.hits.length ? t('searchHeader', this.search!.at + 1, this.search!.hits.length) : t('searchNone')) : null
-    const header = found ?? (!target ? null : this.editing
+    const header = searching ? (found ? `${t('search')} · ${found}` : t('search')) : (!target ? null : this.editing
       ? t('editHeader', this.snippet(target))
       : this.replyTo
         ? `↩ ${target.chat_jid.endsWith('@g.us') && !target.from_me ? `${this.who(target)}: ` : ''}${this.snippet(target)}`
@@ -2711,7 +2683,8 @@ export class Ui {
     // floating on the line above the word, starting on its column. Tab accepts. Every wrong passage the model found
     // is underlined in yellow while it applies; what floats is the cursor's one (ghostShown).
     const view = searching ? null : this.ghostShown()
-    const width = Math.max(4, w - pw)
+    // The text between the box's sides: "╰─ " or "│  " before it, " ─╯" or "  │" after.
+    const width = Math.max(4, W - pw - 3)
     const chars = graphemes(this.pickerOpen ? this.filter : searching ? this.search!.query : this.inputValue)
     const cursor = Math.min(this.pickerOpen ? this.filterCursor : searching ? this.search!.cursor : this.cursor, chars.length)
     const lines = wrapChars(chars, width)
@@ -2791,34 +2764,16 @@ export class Ui {
       return before + '{inverse}' + esc(under) + '{/inverse}' + paint(line.slice(col + 1), from + col + 1)
     }
     const visible = lines.slice(this.inputTop, this.inputTop + rowsAvail)
-    // The prompt says who the line talks to: the chat's name, in the colour it has as a sender in groups (colorFor
-    // of the same jid; a group's own jid for a group), or, with the chat list open, the app, in WhatsApp's green.
-    const color = this.pickerOpen || searching ? this.green : this.current ? colorFor(this.current) : 0
-    const who = this.pickerOpen ? (this.pickerSearch ? t('search') : APP) : searching ? t('search') : name
-    const prompt = who ? `{${color}-fg}${esc(who)}{/${color}-fg} ${mark} ` : `${mark} `
-    const out = visible.map((l, i) => (this.inputTop + i === 0 ? prompt : ' '.repeat(pw)) + render(l, this.inputTop + i))
+    const [v, bl, br] = this.ruleChar === '─' ? ['│', '╰', '╯'] : ['|', '+', '+']
+    const out = visible.map((l, i) => {
+      const last = i === visible.length - 1
+      const text = render(l, this.inputTop + i)
+      const pad = ' '.repeat(Math.max(0, width - visibleWidth(text)))
+      return `${faint(esc(last ? `${bl}${this.ruleChar} ` : `${v}  `))}${text}${pad}${faint(esc(last ? ` ${this.ruleChar}${br}` : `  ${v}`))}`
+    })
     this.input.setContent(out.join('\n'))
-    // The rule above shows 👀 over the name while the person of a one-to-one chat is online, and in a group one per
-    // member online, up to EYES_MAX; while someone in it types, the spinner beside them (over the mark when the chat
-    // has no name).
-    const jid = this.current
-    const eyes = !name || !jid ? 0 : jid.endsWith('@g.us') ? Math.min(EYES_MAX, this.groupOnline.get(jid) ?? 0) : this.online.has(jid) ? 1 : 0
-    const typing = !this.pickerOpen && !!jid && this.typing.has(jid)
-    this.promptName = eyes || typing ? { col: num(this.input.aleft) + num(this.input.ileft), width: name ? strWidth(name) : 1, eyes, typing } : null
-    this.drawRules()
-    // The header (reply, react, edit) floats over the input's top rule, starting in the column where the text being
-    // written starts, after the name and the mark (its padding cell just before), so it leaves the name and its 👀
-    // in view; it stops short of the online mark near the rule's right end.
-    if (header) {
-      const textCol = num(this.input.aleft) + num(this.input.ileft) + pw
-      const room = num(this.screen.width) - textCol - 1 - (this.available ? this.onlineLabel().length + 2 : 0)
-      const text = dim(esc(truncate(header, Math.max(4, room))))
-      this.headerBox.top = num(this.screen.height) - this.bottom
-      this.headerBox.left = textCol - 1
-      this.headerBox.width = visibleWidth(text) + 2
-      this.headerBox.setContent(text)
-      this.headerBox.show()
-    } else this.headerBox.hide()
+    this.borderHeader = header
+    this.drawBorder()
     // The correction floats one line above its word's line, when that line is in view: the input takes the last
     // `rows` lines, the prompt its first columns, after the padding.
     if (ghostAbove && ghostLine >= this.inputTop && ghostLine < this.inputTop + rowsAvail) {
@@ -3560,54 +3515,31 @@ export class Ui {
   }
 
   /**
-   * The rule above the input: 👀 near its right end while this device shows as online (myEyes), and centred over
-   * the prompt's name while the person of the chat is online, or one per member online in a group (eyesBoxes). Only
-   * with a UTF-8 locale, as it's a two-cell emoji from the emoji font; otherwise mine is the word "online" and theirs
-   * aren't shown. While someone types, the braille spinner takes the place of their 👀 (typingBox; in a group, of the
-   * first), and while I do, of mine; a frame every 80 ms, turned by the typing timer's redraws.
+   * The input box's top border, "╭── … ─╮", faint: the chat the text goes to, its name in its colour, bold, with its
+   * 👀 while the person is online (in a group one per member online, up to EYES_MAX) and the braille spinner in place
+   * of the first while someone there types; with the chat list open, the app's name, or "procurar". After it, what's
+   * being replied to, reacted to or edited, or the search's count (borderHeader).
    */
-  private drawRules() {
-    const width = Math.max(0, num(this.screen.width))
-    const utf8 = this.ruleChar === '─'
-    const label = this.onlineLabel(), tail = 2
-    const typingHere = !!this.composingJid
-    const labelCol = (this.available || typingHere) && width >= label.length + tail + 4 ? width - label.length - tail : width
-    const rule = labelCol < width
-      ? `${this.ruleChar.repeat(labelCol)}${label}${this.ruleChar.repeat(tail)}`
-      : this.ruleChar.repeat(width)
-    this.ruleTop.setContent(faint(esc(rule)))
-    if (utf8 && labelCol < width) {
-      this.myEyes.top = num(this.screen.height) - this.bottom
-      this.myEyes.left = labelCol
-      this.myEyes.setContent(typingHere ? ` ${spinnerFrame()}` : ' 👀')
-      this.myEyes.show()
-    } else this.myEyes.hide()
-    // The spinner (one cell) first, in the place of the first 👀, then the other eyes (two cells each), a space
-    // between them all; together centred over the name, with a space on either side.
-    const spin = !!this.promptName?.typing
-    const n = Math.max(0, (utf8 ? this.promptName?.eyes ?? 0 : 0) - (spin ? 1 : 0))
-    const span = (spin ? 1 : 0) + (n ? 3 * n - 1 : 0) + (spin && n ? 1 : 0)
-    const col = this.promptName ? this.promptName.col + Math.max(0, Math.floor((this.promptName.width - span) / 2)) : -1
-    const fits = span > 0 && col >= 1 && col + span + 1 <= labelCol
-    const top = num(this.screen.height) - this.bottom
-    if (fits && spin) {
-      this.typingBox.top = top
-      this.typingBox.left = col - 1
-      this.typingBox.setContent(` ${spinnerFrame()} `)
-      this.typingBox.show()
-    } else this.typingBox.hide()
-    const eyesCol = col + (spin ? 2 : 0)
-    this.eyesBoxes.forEach((box, k) => {
-      if (!fits || k >= n) return void box.hide()
-      box.top = top
-      box.left = eyesCol - 1 + 3 * k
-      box.show()
-    })
-  }
-
-  /** What the rule holds near its right end while online: blank cells under myEyes, or the word. */
-  private onlineLabel(): string {
-    return this.ruleChar === '─' ? '    ' : ` ${t('online')} `
+  private drawBorder() {
+    const width = num(this.screen.width)
+    const h = this.ruleChar
+    const [tl, tr] = h === '─' ? ['╭', '╮'] : ['+', '+']
+    const line = (s: string) => (s ? faint(esc(s)) : '')
+    const jid = this.pickerOpen ? null : this.current
+    const name = this.pickerOpen ? (this.pickerSearch ? t('search') : APP) : jid ? chatName(jid) : ''
+    const color = jid ? colorFor(jid) : this.green
+    const spin = !!jid && this.typing.has(jid)
+    const eyes = h !== '─' || !jid ? 0 : jid.endsWith('@g.us') ? Math.min(EYES_MAX, this.groupOnline.get(jid) ?? 0) : this.online.has(jid) ? 1 : 0
+    const marks = `${spin ? ` ${spinnerFrame()}` : ''}${' 👀'.repeat(Math.max(0, eyes - (spin ? 1 : 0)))}`
+    const nameW = Math.min(strWidth(name), Math.max(6, width - 4 - strWidth(marks) - 4))
+    const before = 4 + nameW + strWidth(marks) + 1
+    // " ─ " and the header in what's left, then the line on to the corner.
+    const headerRoom = width - before - 3 - 3
+    const header = this.borderHeader && headerRoom >= 4 ? truncate(this.borderHeader, headerRoom) : ''
+    const fill = Math.max(1, width - before - (header ? 3 + strWidth(header) : 0) - 1)
+    this.borderName = { x0: 4, x1: 4 + nameW }
+    const shown = `{${color}-fg}{bold}${esc(truncate(name, nameW))}{/bold}{/${color}-fg}${marks}`
+    this.ruleTop.setContent(`${line(`${tl}${h}${h} `)}${shown} ${header ? `${line(h)} ${dim(esc(header))} ` : ''}${line(`${h.repeat(fill)}${tr}`)}`)
   }
 
   private redraw() {
@@ -3615,7 +3547,6 @@ export class Ui {
     this.screen.realloc()
     this.dirtyMessages = true
     this.dirtyTabs = true
-    this.drawRules()
     this.drawInput()
     this.renderNow()
   }
