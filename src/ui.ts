@@ -267,6 +267,11 @@ export class Ui {
   private pickerItems: string[] = []
   private pickerParts = new Map<number, [text: string, lit: boolean][]>()
   private pickerLit: number[] = []
+  /**
+   * My jid as the last connection gave it, kept between runs: the chat list writes numbers by its country code
+   * (chatNumber) from the first frame, before the server's answer says it again (onConnection).
+   */
+  private myJid = store.getState<string>('me') ?? ''
   /** What WhatsApp says of each chat (Wa.ensureProfile), the chats already asked for, and each row's decoded picture. */
   private profiles = new Map<string, ProfileRow>()
   private profileAsked = new Set<string>()
@@ -921,6 +926,7 @@ export class Ui {
   }
 
   private onConnection(state: ConnState, detail?: string) {
+    if (this.wa.me && this.wa.me !== this.myJid) { this.myJid = this.wa.me; store.setState('me', this.myJid) }
     // Any change of connection, the switch to another server process included, voids what was said about who's
     // typing and who's online: the new connection doesn't know, and would never send the "stopped" or "offline"
     // that clears it. Typing ends as if they'd stopped; online comes back once open, from the presence
@@ -2124,7 +2130,7 @@ export class Ui {
     if (!digits) return ''
     const code = callingCode(digits), national = digits.slice(code.length)
     const pt = code === '351' && national.length === 9 ? `${national.slice(0, 3)} ${national.slice(3, 6)} ${national.slice(6)}` : ''
-    if (code === callingCode(jidUser(this.wa.me))) return pt || national
+    if (code === callingCode(jidUser(this.myJid))) return pt || national
     return pt ? `+351 ${pt}` : `+${digits}`
   }
 
