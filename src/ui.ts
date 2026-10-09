@@ -2507,7 +2507,8 @@ export class Ui {
 
   /**
    * The corrections for one of my text messages while it can still be edited (EDIT_WINDOW), or null: asked for once
-   * per text, one message at a time (checkSent), and remembered for the session.
+   * per text, one message at a time (checkSent), when the message first shows them (my last, or an earlier one
+   * selected), and remembered for the session.
    */
   private sentFixesFor(row: MessageRow): Fix[] | null {
     if (!row.from_me || row.type !== 'text' || Date.now() / 1000 - row.ts >= EDIT_WINDOW) return null
@@ -2553,11 +2554,12 @@ export class Ui {
    * where that passage starts on the line: the cells underlined in yellow around the click, matched by their text.
    */
   private fixAt(x: number, y: number, row: MessageRow): { fix: Fix; x: number } | null {
-    const fixes = this.sentFixesFor(row)
     const line = this.screenRows('lines')[y]
-    if (!fixes || !line) return null
+    if (!line) return null
     const marked = (cx: number) => { const a = line[cx]?.[0]; return a != null && ((a >> 18) & 2) !== 0 && ((a >> 9) & 0x1ff) === 3 }
-    if (!marked(x)) return null
+    // Only a passage marked: a click on a message whose marks aren't shown doesn't get it checked.
+    const fixes = marked(x) ? this.sentFixesFor(row) : null
+    if (!fixes) return null
     let a = x, b = x
     while (a > 0 && marked(a - 1)) a--
     while (marked(b + 1)) b++
@@ -2905,6 +2907,8 @@ export class Ui {
     const rows = store.listMessages(jid, this.shown.get(jid) ?? PAGE).filter(r => r.type !== 'secretEncrypted')
     // The last of mine the other side has read (or played), which gets the prompt's mark turned round, "❮", right after its time.
     const lastRead = [...rows].reverse().find(r => r.from_me === 1 && (r.status ?? 0) >= 4)?.id
+    // The last of mine, whose passages found wrong are marked; an earlier one's only while it's selected.
+    const lastMine = [...rows].reverse().find(r => r.from_me === 1)?.id
     this.rows = rows
     this.selected = rows.find(r => r.id === selectedId) ?? null
     this.dropDescribing()
@@ -3018,10 +3022,10 @@ export class Ui {
       if (row.text && (type === 'text' || type === 'image' || type === 'video' || type === 'gif' || type === 'document')) {
         // Mentions by first name, in the colour the person's name has in groups; where each lands is kept for a click.
         const marks = new Map<string, { jid: string; width: number }>()
-        // Mine still within the editing window: the passages the check found wrong, underlined in yellow (sentFixesFor);
-        // while searching, the search's words instead, in reverse video.
+        // Mine still within the editing window, the last or the one selected: the passages the check found wrong,
+        // underlined in yellow (sentFixesFor); while searching, the search's words instead, in reverse video.
         const words = this.search?.words.length ? this.search.words : null
-        const fixes = !words && mine && type === 'text' ? this.sentFixesFor(row) : null
+        const fixes = !words && mine && type === 'text' && (row.id === lastMine || row.id === selectedId) ? this.sentFixesFor(row) : null
         if (fixes) expires = Math.min(expires, row.ts + EDIT_WINDOW)
         const shown = withMentions(waMarkup(words ? markSearch(row.text, words) : fixes ? markFixes(row.text, fixes) : row.text), (jid, first) => {
           const color = colorFor(jid), token = `{${color}-fg}@${esc(first)}{/${color}-fg}`

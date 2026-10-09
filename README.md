@@ -145,9 +145,9 @@ spell checker stands in, words only, in the same way: Hunspell in WebAssembly wi
 and English dictionaries, a word being right in any of them; words you wrote yourself more than once and the names of
 contacts and chats count as known, unless all they lack is an accent.
 
-Your text messages are checked the same way once sent, while WhatsApp still lets them be edited (15 minutes): the
-wrong passages are underlined in yellow in the bubble; a click on one floats its correction above it, and a click on
-that edits the message with it. The marks go when the 15 minutes are up.
+Your last text message is checked the same way once sent, and an earlier one when you select it, while WhatsApp still
+lets them be edited (15 minutes): the wrong passages are underlined in yellow in the bubble; a click on one floats its
+correction above it, and a click on that edits the message with it. The marks go when the 15 minutes are up.
 
 ## Data
 
