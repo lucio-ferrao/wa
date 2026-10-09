@@ -3481,6 +3481,9 @@ export class Ui {
     const clines = this.msgBox._clines
     const lines = this.screenRows('lines')
     const rgbAt = (rgb: Uint8Array, i: number) => `${rgb[i * 3]};${rgb[i * 3 + 1]};${rgb[i * 3 + 2]}`
+    // The cells a picture takes: one of its dark pixels can come out, in the 256 colours, in a bubble's grey, and
+    // painted by both the bubble lost its colour to the bubble's in the first frame and got it back at the next.
+    const pictures = new Set<number>()
     // Row `r` of a picture `cols` wide, drawn from screen cell (left, y).
     const pictureRow = (grid: BlockGrid, cols: number, r: number, left: number, y: number) => {
       const row = lines[y]
@@ -3492,6 +3495,7 @@ export class Ui {
         const attr = held?.[0] ?? -1
         if (held?.[1] !== cell.ch || attr >> 18 !== 0 || ((attr >> 9) & 0x1ff) !== (cell.fg < 0 ? 0x1ff : cell.fg) || (attr & 0x1ff) !== (cell.bg < 0 ? 0x1ff : cell.bg)) continue
         cells.push({ x, y, ch: cell.ch, w: 1, sgr: `0;38;2;${rgbAt(grid.rgb, cell.fgAt)}${cell.bgAt < 0 ? '' : `;48;2;${rgbAt(grid.rgb, cell.bgAt)}`}` })
+        pictures.add(y * 65536 + x)
       }
     }
     if (this.current && !this.pickerOpen && !this.showingQr && clines?.ftor) {
@@ -3535,7 +3539,7 @@ export class Ui {
         if (!row) continue
         for (let x = x0; x < x1; x++) {
           const held = row[x]
-          if (!held) continue
+          if (!held || pictures.has(y * 65536 + x)) continue
           const rgb = bubbles[held[0] & 0x1ff]
           // The second cell of a wide character holds blessed's marker: the character itself covers it.
           if (!rgb || held[1] === '\u0003') continue
