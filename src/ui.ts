@@ -560,6 +560,12 @@ export class Ui {
     // Over the panels, the image opened with a click: any key or click closes it.
     this.viewerBox = blessed.box({ parent: this.screen, top: 1, left: 2, right: 2, bottom: 1, border: { type: 'line' }, tags: true, wrap: false, hidden: true })
     this.viewerBox.on('click', () => this.closeViewer())
+    // blessed gives the keyboard to whatever is clicked; here it goes only where setFocus puts it. The chat list's
+    // arrows work only while the list holds it, and a click on the popup that closes it, on the prompt or on the bar
+    // took it away from the list for good.
+    for (const box of [this.tabsBar, this.msgBox, this.input, this.suggest, this.ghostBox, this.fixBox, this.viewerBox]) {
+      (box as unknown as { options: { autoFocus?: boolean } }).options.autoFocus = false
+    }
 
     // Above everything, the emoji rising when a message or reaction is a single emoji, sent or received.
     this.hearts = new Hearts(this.screen, this.msgBox, this.bgRgb, blessed.box)
