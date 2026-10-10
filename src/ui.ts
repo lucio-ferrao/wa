@@ -3695,11 +3695,11 @@ export class Ui {
 
   /**
    * The two rows over the text being written. In a chat, the other side's next message, still to come: a bubble in
-   * their messages' grey with the chat's name in its colour, bold, and dots coming one after another while someone
-   * there types; beside the bubble, as their messages' time, "online" while they're online (in a group, how many of
-   * its members are), or, offline, the time of their last sign. While the messages above are scrolled up, a faint
-   * line on from it, with how many messages are below. Then a blank row, as between messages. With the chat list
-   * open or a search, a blank row and a faint rule over the line, with the search's count (borderHeader).
+   * their messages' grey with the chat's name in its colour, bold; beside it, as their messages' time, "online" while
+   * they're online (in a group, how many of its members are), or, offline, the time of their last sign. While the
+   * messages above are scrolled up, a faint line on from it, with how many messages are below. Then a row, blank as
+   * between messages, but for dots coming one after another under the name while someone there types. With the chat
+   * list open or a search, a blank row and a faint rule over the line, with the search's count (borderHeader).
    */
   private drawBorder() {
     const width = num(this.screen.width)
@@ -3718,16 +3718,16 @@ export class Ui {
     // gives when they share it) and their last message here; for someone who hides their presence, only that.
     const lastSent = [...this.rows].reverse().find(r => r.chat_jid === jid && !r.from_me)?.ts ?? 0
     const seen = group ? undefined : Math.max(store.getState<number>(`seen:${jid}`) ?? 0, lastSent) || undefined
-    // While they type, dots after the name (typingDots), in a fixed width so the bubble keeps its size.
-    const state = this.typing.has(jid) ? ` ${typingDots()}` : ''
+    // While they type, dots under the name, on the blank row (typingDots), so the bubble doesn't move.
+    const dots = this.typing.has(jid) ? `  ${faint(typingDots())}` : ''
     // Outside the bubble, as their messages' time: "online" while they are (in a group, how many), or their last sign.
     const said = online ? (group ? t('onlineCount', online) : t('online')) : seen ? fmtWhenAt(seen) : ''
     const after = said ? ` ${faint(esc(said))}` : ''
     // As their messages: the panel's padding column, then the bubble, a spare column on either side of the text.
-    const room = Math.max(6, width - 4 - visibleWidth(after) - strWidth(state))
+    const room = Math.max(6, width - 4 - visibleWidth(after))
     const name = truncate(chatName(jid), room)
     const color = colorFor(jid), bg = this.bubbleBg.theirs
-    const text = `{${color}-fg}{bold}${esc(name)}{/bold}{/${color}-fg}${state ? dim(esc(state)) : ''}`
+    const text = `{${color}-fg}{bold}${esc(name)}{/bold}{/${color}-fg}`
     this.borderName = { x0: 2, x1: 2 + strWidth(name) }
     const bubble = ` {${bg}-bg} ${text} {/${bg}-bg}${after}`
     // Scrolled up: the bubble isn't the last thing said, and a line on from it says so, with how many are below.
@@ -3740,7 +3740,7 @@ export class Ui {
       const fill = width - visibleWidth(bubble) - 1 - strWidth(tail) - 1
       if (fill > 2) { rest = ` ${line(h.repeat(fill))}${dim(esc(tail))}`; this.borderBelow = visibleWidth(bubble) + 1 }
     }
-    this.ruleTop.setContent(`${bubble}${rest}\n`)
+    this.ruleTop.setContent(`${bubble}${rest}\n${dots}`)
   }
 
   private redraw() {
