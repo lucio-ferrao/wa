@@ -40,14 +40,14 @@ texts, the emoji names and the language of the writing suggestions.
 The tab bar at the top with the connection state on the right, messages across the full width under it, and under
 them, as the conversation's next two messages, the other side's still to come and yours being written. The first is a
 bubble in their messages' grey with the chat's name in the colour it has in groups and, faint, dots coming one after
-another (`.`, `..`, `...`) while they type; beside it, as their messages' time, 👀 while the person is online (in a
-group one per member online, up to five, among the 30 who wrote most recently), or, while they're offline, when they
-were last seen, which the server keeps as WhatsApp tells it; while the messages are scrolled up, a line on from it
-says how many are below. Under it you write on your bubbles' green, in a band as wide as your bubbles can be, so the
-text wraps where the message will, growing upwards with it; when it's sent, the conversation first moves up to make
-room for it, and then the band narrows to the bubble and rises into that room. Beyond the bubbles, no backgrounds of
-its own: the colours are the terminal theme's, and on startup the terminal is asked for its real background colour to
-pick light or dark shades.
+another (`.`, `..`, `...`) while they type; beside it, as their messages' time, "online" while the person is online
+(in a group, how many of the 30 who wrote most recently are), or, while they're offline, the time of their last sign:
+the latest of their being online or typing, the time WhatsApp gives for someone who shares it (both kept by the
+server), and their last message; while the messages are scrolled up, a line on from it says how many are below. Under
+it you write on your bubbles' green, in a band as wide as your bubbles can be, so the text wraps where the message
+will, growing upwards with it; when it's sent, the conversation first moves up to make room for it, and then the band
+narrows to the bubble and rises into that room. Beyond the bubbles, no backgrounds of its own: the colours are the
+terminal theme's, and on startup the terminal is asked for its real background colour to pick light or dark shades.
 
 - **Tabs**: one per open chat, with the unread count in red and an `×` to close. Tab cycles through them, or, with
   only one open, opens the chat list; whatever is left unsent stays with each chat. While someone is typing in another

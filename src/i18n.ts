@@ -75,6 +75,8 @@ const STRINGS = {
   describing: { pt: 'a descrever…', en: 'describing…' },
   linkPreview: { pt: 'pré-visualização', en: 'preview' },
   typingWord: { pt: 'a escrever', en: 'typing' },
+  online: { pt: 'online', en: 'online' },
+  onlineCount: { pt: '{0} online', en: '{0} online' },
   thisWeek: { pt: 'esta semana', en: 'this week' },
   older: { pt: 'mais antigas', en: 'older' },
   weekdays: { pt: 'dom seg ter qua qui sex sáb', en: 'Sun Mon Tue Wed Thu Fri Sat' },

@@ -75,8 +75,6 @@ const typingDot = () => ['.', '‥', '…'][Math.floor(Date.now() / 400) % 3]!
  * dot), "14:06" delivered or read (two). Which was read the "❮" after the time of the last one says (renderMessages).
  */
 const myTime = (ts: number, status: number) => fmtTime(ts).replace(':', status >= 3 ? ':' : status >= 2 ? '.' : ' ')
-/** At most this many 👀 over a group's name, however many of its members are online. */
-const EYES_MAX = 5
 /** How many of a chat's latest messages the panel draws at first, and how many more each scroll past the top adds. */
 const PAGE = 300
 /**
@@ -237,7 +235,7 @@ export class Ui {
   /** The message just sent, flying from where it was written to where it lands among the messages (flyDraft). */
   private flyBox!: blessed.Widgets.BoxElement
   private flight: { timer: NodeJS.Timeout; text: string; frame: number; arrived: boolean; room: number } | undefined
-  /** Per group, how many of its followed members are online, for as many 👀 (up to EYES_MAX). */
+  /** Per group, how many of its followed members are online, said by its bubble over the input ("3 online"). */
   private groupOnline = new Map<string, number>()
   private ghostTimer: NodeJS.Timeout | undefined
   /** The corrections found in my recent messages, by chat, id and text: null while being checked, or with none. */
@@ -3698,10 +3696,10 @@ export class Ui {
   /**
    * The two rows over the text being written. In a chat, the other side's next message, still to come: a bubble in
    * their messages' grey with the chat's name in its colour, bold, and dots coming one after another while someone
-   * there types; beside the bubble, as their messages' time, their 👀 while they're online (in a group one per member
-   * online, up to EYES_MAX), or, offline, when they were last seen. While the messages above are scrolled up, a faint
-   * line on from it, with how many messages are below. Then a blank row, as between messages. With the chat list open
-   * or a search, a blank row and a faint rule over the line, with the search's count (borderHeader).
+   * there types; beside the bubble, as their messages' time, "online" while they're online (in a group, how many of
+   * its members are), or, offline, the time of their last sign. While the messages above are scrolled up, a faint
+   * line on from it, with how many messages are below. Then a blank row, as between messages. With the chat list
+   * open or a search, a blank row and a faint rule over the line, with the search's count (borderHeader).
    */
   private drawBorder() {
     const width = num(this.screen.width)
@@ -3715,12 +3713,16 @@ export class Ui {
       return
     }
     const group = jid.endsWith('@g.us')
-    const eyes = h !== '─' ? 0 : group ? Math.min(EYES_MAX, this.groupOnline.get(jid) ?? 0) : this.online.has(jid) ? 1 : 0
-    const seen = group ? undefined : store.getState<number>(`seen:${jid}`)
+    const online = group ? this.groupOnline.get(jid) ?? 0 : this.online.has(jid) ? 1 : 0
+    // Their last sign: the latest of what the server kept from their presence (online, typing, or the time WhatsApp
+    // gives when they share it) and their last message here; for someone who hides their presence, only that.
+    const lastSent = [...this.rows].reverse().find(r => r.chat_jid === jid && !r.from_me)?.ts ?? 0
+    const seen = group ? undefined : Math.max(store.getState<number>(`seen:${jid}`) ?? 0, lastSent) || undefined
     // While they type, dots after the name (typingDots), in a fixed width so the bubble keeps its size.
     const state = this.typing.has(jid) ? ` ${typingDots()}` : ''
-    // Outside the bubble, as their messages' time: while they're online their 👀, offline when they were last seen.
-    const after = this.online.has(jid) || !seen ? ' 👀'.repeat(eyes) : ` ${faint(esc(fmtWhenAt(seen)))}`
+    // Outside the bubble, as their messages' time: "online" while they are (in a group, how many), or their last sign.
+    const said = online ? (group ? t('onlineCount', online) : t('online')) : seen ? fmtWhenAt(seen) : ''
+    const after = said ? ` ${faint(esc(said))}` : ''
     // As their messages: the panel's padding column, then the bubble, a spare column on either side of the text.
     const room = Math.max(6, width - 4 - visibleWidth(after) - strWidth(state))
     const name = truncate(chatName(jid), room)
