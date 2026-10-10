@@ -84,6 +84,7 @@ export class IpcServer {
         case 'send': await this.wa.send(a[0]!, a[1]!, a[2] ?? undefined, (req.args[3] as string[] | null) ?? undefined); return reply({ ok: true })
         case 'react': await this.wa.react(a[0]!, a[1]!, a[2] ?? ''); return reply({ ok: true })
         case 'edit': await this.wa.edit(a[0]!, a[1]!, a[2]!); return reply({ ok: true })
+        case 'deleteMessage': await this.wa.deleteMessage(a[0]!, a[1]!, a[2] === 'all'); return reply({ ok: true })
         case 'sendFile': await this.wa.sendFile(a[0]!, a[1]!, a[2]); return reply({ ok: true })
         case 'markRead': await this.wa.markRead(a[0]!); return reply({ ok: true })
         case 'subscribePresence': this.wa.subscribePresence(a[0]!); return reply({ ok: true })
@@ -176,6 +177,7 @@ export class RemoteWa extends EventEmitter<WaEvents> implements Backend {
   send(chatJid: string, text: string, replyTo?: string, mentions?: string[]) { return this.call<void>('send', chatJid, text, replyTo, mentions) }
   react(chatJid: string, msgId: string, emoji: string) { return this.call<void>('react', chatJid, msgId, emoji) }
   edit(chatJid: string, msgId: string, text: string) { return this.call<void>('edit', chatJid, msgId, text) }
+  deleteMessage(chatJid: string, msgId: string, forEveryone: boolean) { return this.call<void>('deleteMessage', chatJid, msgId, forEveryone ? 'all' : 'me') }
   sendFile(chatJid: string, filePath: string, caption?: string) { return this.call<void>('sendFile', chatJid, filePath, caption) }
   markRead(chatJid: string) { return this.call<void>('markRead', chatJid) }
   subscribePresence(chatJid: string) { this.call('subscribePresence', chatJid).catch(() => {}) }

@@ -89,6 +89,8 @@ const callingCode = (digits: string) => CALLING_CODE.exec(digits)?.[0] ?? digits
 const LIST_COLS = 60
 /** Frames, 40 ms apart, of the flight of a message just sent from where it was written to its place (flyDraft). */
 const FLY_FRAMES = 5
+/** How long, in seconds, WhatsApp lets one of my messages be deleted for everyone: a little over two days, kept short of it. */
+const DELETE_WINDOW = 2 * 24 * 3600
 /** How long, in seconds, WhatsApp lets a message be edited after it was sent. */
 const EDIT_WINDOW = 15 * 60
 /** A message's text without the "(editada)" line an edit leaves at its end. */
@@ -375,6 +377,8 @@ export class Ui {
   private replyTo: MessageRow | null = null
   /** My own message open in the input for editing (Backspace or Delete with an empty line). */
   private editing: MessageRow | null = null
+  /** The selected message waiting for a second Delete (or Ctrl+D) to be deleted, and whether for everyone. */
+  private deleting: { row: MessageRow; forEveryone: boolean } | null = null
   /** What's left unsent in each chat: switching tabs swaps the input, so nothing goes to the wrong person. */
   private drafts = new Map<string, { value: string; cursor: number }>()
   private reactTo: MessageRow | null = null
@@ -1036,6 +1040,7 @@ export class Ui {
       if (this.quickFor) { this.quickFor = undefined; return this.screen.render() }
       if (this.suggestions.length) { this.suggestions = []; this.drawSuggestions(); this.drawInput(); return this.screen.render() }
       if (this.replyTo || this.reactTo) { this.replyTo = this.reactTo = null; this.drawInput(); return this.screen.render() }
+      if (this.deleting) { this.deleting = null; this.drawInput(); return this.screen.render() }
       if (this.editing) { this.editing = null; this.inputValue = ''; this.cursor = 0; this.updateSuggestions(); this.drawInput(); return this.screen.render() }
       if (this.focus === 'messages') { this.setFocus('input'); return this.renderNow() }
       if (this.pickerOpen) {
@@ -1148,6 +1153,16 @@ export class Ui {
       return this.screen.render()
     }
     if (this.focus === 'messages') {
+      // Delete or Ctrl+D over the selected message deletes it, once confirmed by a second one: mine for everyone
+      // while WhatsApp allows it (DELETE_WINDOW), any other for me only. Any other key gives up.
+      if ((k === 'delete' || k === 'C-d') && this.selected && this.selected.type !== 'deleted') {
+        if (this.deleting?.row.id === this.selected.id) return void this.deleteMessage(this.deleting)
+        const row = this.selected
+        this.deleting = { row, forEveryone: row.from_me === 1 && Date.now() / 1000 - row.ts < DELETE_WINDOW }
+        this.drawInput()
+        return this.screen.render()
+      }
+      if (this.deleting) { this.deleting = null; this.drawInput() }
       if (k === 'up' || k === 'down') return this.moveSelection(k === 'up' ? -1 : 1)
       // → over the selected message replies to it. It's also what Termius sends on a right swipe: a burst of
       // arrows, with no position; the following ones land on the empty input and do nothing.
@@ -1157,9 +1172,8 @@ export class Ui {
         this.drawInput()
         return this.screen.render()
       }
-      // Delete or Backspace over my own text message opens it in the input to correct it; Enter sends the edit,
-      // Esc gives up.
-      if ((k === 'delete' || k === 'backspace') && this.selected) return this.editMessage(this.selected)
+      // Backspace over my own text message opens it in the input to correct it; Enter sends the edit, Esc gives up.
+      if (k === 'backspace' && this.selected) return this.editMessage(this.selected)
       // Typing over the selected message starts a reply right away, with what was typed; ":" starts a reaction, and
       // stays typed so it can continue with the emoji's :code:. The input's header says which message.
       if (this.selected && ch && !key.ctrl && !key.meta && ch >= ' ' && ch !== '\x7f') {
@@ -1480,6 +1494,21 @@ export class Ui {
     const base = this.msgBox.childBase, h = this.innerHeight()
     if (top < base) this.msgBox.scrollTo(top)
     else if (bottom >= base + h) this.msgBox.scrollTo(bottom - h + 1)
+  }
+
+  /** Deletes the message the confirmation was for (see the Delete key): for everyone, or for me only. */
+  private async deleteMessage(d: { row: MessageRow; forEveryone: boolean }) {
+    this.deleting = null
+    this.select(null)
+    this.drawInput()
+    this.renderNow()
+    if (this.wa.state !== 'open') return this.flash(t('noConnection'))
+    try {
+      await this.wa.deleteMessage(d.row.chat_jid, d.row.id, d.forEveryone)
+    } catch (e) {
+      logger.error({ e }, 'delete')
+      this.flash(`${t('error')}: ${(e as Error).message}`, 10000)
+    }
   }
 
   /** Puts one of my own text messages in the input, to correct and resend it as an edit. */
@@ -2718,7 +2747,9 @@ export class Ui {
     const stampW = visibleWidth(myTime(Date.now() / 1000, 0)) + 1
     const target = this.pickerOpen || searching ? null : this.replyTo ?? this.reactTo ?? this.editing
     const found = searching && this.search!.query ? (this.search!.hits.length ? t('searchHeader', this.search!.at + 1, this.search!.hits.length) : t('searchNone')) : null
-    const header = searching ? (found ? `${t('search')} · ${found}` : t('search')) : (!target ? null : this.editing
+    const header = searching ? (found ? `${t('search')} · ${found}` : t('search'))
+      : this.deleting ? t(this.deleting.forEveryone ? 'deleteForAll' : 'deleteForMe')
+      : (!target ? null : this.editing
       ? t('editHeader', this.snippet(target))
       : this.replyTo
         ? `↩ ${target.chat_jid.endsWith('@g.us') && !target.from_me ? `${this.who(target)}: ` : ''}${this.snippet(target)}`
@@ -2822,7 +2853,9 @@ export class Ui {
       const band = (s: string) => ` {${bg}-bg} ${s.replace(/\{\/inverse\}/g, `{/inverse}{${bg}-bg}`)}${' '.repeat(Math.max(0, width - visibleWidth(s)))} {/}`
       out = visible.map((l, i) => band(render(l, this.inputTop + i)))
       while (out.length < rowsAvail) out.push(band(''))
-      if (this.headerRows) out.unshift(band(dim(esc(truncate(header!, width)))))
+      // The confirmation a deletion waits for, in the colour of errors; what's being replied to or edited, faint.
+      const said = esc(truncate(header ?? '', width))
+      if (this.headerRows) out.unshift(band(this.deleting ? `{${FG.error}-fg}${said}{/${FG.error}-fg}` : dim(said)))
     }
     this.input.setContent(out.join('\n'))
     this.borderHeader = plain ? header : null
@@ -3051,7 +3084,8 @@ export class Ui {
         names.set(map.length, { jid: row.sender_jid, start: indent, width: strWidth(who) })
         header(`{${colorFor(row.sender_jid)}-fg}${esc(who)}{/${colorFor(row.sender_jid)}-fg}`)
       }
-      if (row.quoted) {
+      // A message deleted shows nothing of what it was, the message it answered included.
+      if (row.quoted && row.type !== 'deleted') {
         const [who, text] = row.quoted.split('\t')
         // Who it was from only matters in groups; one-on-one the other person is obvious, and mine don't carry a name either.
         const author = who === this.wa.me || !row.chat_jid.endsWith('@g.us') ? '' : `${esc(contactName(who ?? ''))}: `

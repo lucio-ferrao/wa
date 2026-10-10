@@ -14,6 +14,8 @@ export interface Backend extends EventEmitter<WaEvents> {
   send(chatJid: string, text: string, replyTo?: string, mentions?: string[]): Promise<void>
   react(chatJid: string, msgId: string, emoji: string): Promise<void>
   edit(chatJid: string, msgId: string, text: string): Promise<void>
+  /** One of my messages for everyone (`forEveryone`), or any for me only (see Wa.deleteMessage). */
+  deleteMessage(chatJid: string, msgId: string, forEveryone: boolean): Promise<void>
   sendFile(chatJid: string, filePath: string, caption?: string): Promise<void>
   markRead(chatJid: string): Promise<void>
   subscribePresence(chatJid: string): void

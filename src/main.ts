@@ -28,6 +28,7 @@ class BackendProxy extends EventEmitter<WaEvents> implements Backend {
   send(jid: string, text: string, replyTo?: string) { return this.ready().send(jid, text, replyTo) }
   react(jid: string, msgId: string, emoji: string) { return this.ready().react(jid, msgId, emoji) }
   edit(jid: string, msgId: string, text: string) { return this.ready().edit(jid, msgId, text) }
+  deleteMessage(jid: string, msgId: string, forEveryone: boolean) { return this.ready().deleteMessage(jid, msgId, forEveryone) }
   sendFile(jid: string, file: string, caption?: string) { return this.ready().sendFile(jid, file, caption) }
   async markRead(jid: string) { await this.inner?.markRead(jid) }
   subscribePresence(jid: string) { this.inner?.subscribePresence(jid) }

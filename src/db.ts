@@ -198,6 +198,8 @@ const q = {
   repairGroupPending: db.prepare(`UPDATE messages SET status = 2 WHERE from_me = 1 AND status = 1 AND chat_jid LIKE '%@g.us'
     AND EXISTS (SELECT 1 FROM messages n WHERE n.chat_jid = messages.chat_jid AND n.ts > messages.ts)`),
   setType: db.prepare(`UPDATE messages SET type = ?, text = ? WHERE chat_jid = ? AND id = ?`),
+  removeMessage: db.prepare(`DELETE FROM messages WHERE chat_jid = ? AND id = ?`),
+  removeReactions: db.prepare(`DELETE FROM reactions WHERE chat_jid = ? AND msg_id = ?`),
   lastMessage: db.prepare(`SELECT * FROM messages WHERE chat_jid = ? AND type != 'secretEncrypted' ORDER BY ts DESC LIMIT 1`),
   setReaction: db.prepare(`
     INSERT INTO reactions (chat_jid, msg_id, sender_jid, emoji, ts) VALUES (?, ?, ?, ?, ?)
@@ -357,6 +359,11 @@ export const store = {
   },
   repairStatuses(): { read: number; groupSent: number } {
     return { read: Number(q.repairRead.run().changes), groupSent: Number(q.repairGroupPending.run().changes) }
+  },
+  /** A message deleted for me: it goes, and its reactions with it. */
+  removeMessage(chat: string, id: string) {
+    q.removeMessage.run(chat, id)
+    q.removeReactions.run(chat, id)
   },
   setType(chat: string, id: string, type: string, text: string) {
     q.setType.run(type, text, chat, id)

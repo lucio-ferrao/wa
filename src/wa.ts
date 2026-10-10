@@ -792,6 +792,26 @@ export class Wa extends EventEmitter<WaEvents> {
     this.emit('chats')
   }
 
+  /**
+   * Deletes a message: one of mine for everyone (WhatsApp leaves "mensagem apagada" in its place, on both sides), or
+   * any for me only, which goes from here and, through the app state, from the phone.
+   */
+  async deleteMessage(chatJid: string, msgId: string, forEveryone: boolean) {
+    const row = store.getMessage(chatJid, msgId)
+    const target = this.rawMessage(chatJid, msgId)
+    if (!row || !target) throw new Error(t('messageGone'))
+    if (forEveryone) {
+      if (!target.key.fromMe) throw new Error(t('onlyOwnDelete'))
+      await this.sock!.sendMessage(chatJid, { delete: target.key })
+      store.setType(chatJid, msgId, 'deleted', '')
+    } else {
+      await this.sock!.chatModify({ deleteForMe: { deleteMedia: false, key: target.key, timestamp: row.ts } }, chatJid)
+      store.removeMessage(chatJid, msgId)
+    }
+    this.emit('messages', chatJid)
+    this.emit('chats')
+  }
+
   private rawMessage(chatJid: string, id: string): WAMessage | undefined {
     const row = store.getMessage(chatJid, id)
     return row ? (JSON.parse(row.raw, BufferJSON.reviver) as WAMessage) : undefined

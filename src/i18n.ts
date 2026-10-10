@@ -10,8 +10,8 @@ export const lang: Lang = /^pt/i.test(locale) ? 'pt' : 'en'
 
 const STRINGS = {
   help: {
-    pt: 'Tab muda de tab (com texto, aceita a sugestão) · / conversas · Ctrl+F procura (na lista, em todas) · Esc fecha · PgUp/PgDn histórico, Ctrl+↓ fim · ↑ ou clique selecciona mensagem, escrever responde, : reage · :fixe: emoji',
-    en: 'Tab switches tabs (with text, accepts the suggestion) · / chats · Ctrl+F searches (in the list, all of them) · Esc closes · PgUp/PgDn history, Ctrl+↓ end · ↑ or click selects a message, typing replies, : reacts · :thumbsup: emoji',
+    pt: 'Tab muda de tab (com texto, aceita a sugestão) · / conversas · Ctrl+F procura (na lista, em todas) · Esc fecha · PgUp/PgDn histórico, Ctrl+↓ fim · ↑ ou clique selecciona mensagem, escrever responde, : reage, Delete apaga · :fixe: emoji',
+    en: 'Tab switches tabs (with text, accepts the suggestion) · / chats · Ctrl+F searches (in the list, all of them) · Esc closes · PgUp/PgDn history, Ctrl+↓ end · ↑ or click selects a message, typing replies, : reacts, Delete deletes · :thumbsup: emoji',
   },
   connecting: { pt: 'a ligar…', en: 'connecting…' },
   waitingQr: { pt: 'à espera do QR', en: 'waiting for the QR' },
@@ -21,6 +21,10 @@ const STRINGS = {
   me: { pt: 'eu', en: 'me' },
   onlyOwnText: { pt: 'só podes corrigir mensagens de texto tuas', en: 'you can only edit your own text messages' },
   onlyOwnEdit: { pt: 'só podes editar mensagens tuas', en: 'you can only edit your own messages' },
+  onlyOwnDelete: { pt: 'só podes apagar para todos mensagens tuas', en: 'you can only delete your own messages for everyone' },
+  messageGone: { pt: 'a mensagem já não está aqui', en: 'the message is no longer here' },
+  deleteForAll: { pt: 'Delete outra vez apaga para todos · Esc cancela', en: 'Delete again deletes for everyone · Esc cancels' },
+  deleteForMe: { pt: 'Delete outra vez apaga para mim · Esc cancela', en: 'Delete again deletes for me · Esc cancels' },
   editTooLate: { pt: 'já passaram 15 minutos: o WhatsApp não deixa editar', en: 'more than 15 minutes ago: WhatsApp no longer lets it be edited' },
   unknownMessage: { pt: 'mensagem desconhecida', en: 'unknown message' },
   noConnection: { pt: 'sem ligação ao WhatsApp; espera pelo ● verde', en: 'no WhatsApp connection; wait for the green ●' },
