@@ -58,8 +58,6 @@ interface ClinesBox extends blessed.Widgets.BoxElement {
   childBase: number
 }
 
-/** The sign that someone is typing, in their tab and the prompt: the classic braille dots spinner, a frame every 80 ms. */
-const SPINNER = [...'⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏']
 /** The model's suggestion in view: the letters missing from the half-typed word, the right word, or a correction. */
 type GhostView = { kind: 'suffix' | 'word'; text: string; word: { from: string; to: string } } | { kind: 'fix'; text: string; fix: Fix }
 /** The app's name, over the chat list, in the rules' thin lines with round corners, like speech bubbles. */
@@ -69,7 +67,9 @@ const WORDMARK = [
   '╰─┴─╯ ╰─┴ ╶─╯ ╶─╯ ╰─╯ ├─╯',
   '                      ╵',
 ]
-const spinnerFrame = () => SPINNER[Math.floor(Date.now() / 80) % SPINNER.length]!
+/** Someone typing: dots coming one after another, a step every 400 ms, in three cells ("." ".." "..."), or in one. */
+const typingDots = () => '.'.repeat(1 + Math.floor(Date.now() / 400) % 3).padEnd(3)
+const typingDot = () => ['.', '‥', '…'][Math.floor(Date.now() / 400) % 3]!
 /**
  * The time of a message of mine, carrying its state in the separator: "14 06" waiting to leave, "14.06" sent (one
  * dot), "14:06" delivered or read (two). Which was read the "❮" after the time of the last one says (renderMessages).
@@ -404,7 +404,7 @@ export class Ui {
   private transientTimer: NodeJS.Timeout | undefined
   private atBottom = true
   private renderTimer: NodeJS.Timeout | undefined
-  /** Chats where someone is typing, and the clock that turns their spinners while there's any. */
+  /** Chats where someone is typing, and the clock that moves their dots while there's any. */
   private typing = new Set<string>()
   /** One-to-one chats whose person is online right now, for the prompt's mark. */
   private online = new Set<string>()
@@ -970,8 +970,9 @@ export class Ui {
   }
 
   /**
-   * Someone started or stopped typing: a braille spinner turns in their tab, before the name (for the chat in view, by
-   * its name on the input box's border, in place of the first 👀), and in the window title (in Herdr, the agent's name).
+   * Someone started or stopped typing: dots come one after another in their tab, before the name (for the chat in view,
+   * after its name over the input, and in the list, after "a escrever"), and in the window title (in Herdr, the
+   * agent's name).
    */
   private onTyping(jid: string, active: boolean) {
     if (active) this.typing.add(jid); else this.typing.delete(jid)
@@ -983,7 +984,7 @@ export class Ui {
     this.screen.render()
   }
 
-  /** The spinners' clock, a frame every 80 ms: it runs while anyone is typing. */
+  /** The dots' clock, a look every 100 ms for their step every 400 (typingDots): it runs while anyone is typing. */
   private syncTypingTimer() {
     const on = this.typing.size > 0
     if (on && !this.typingTimer) {
@@ -993,7 +994,7 @@ export class Ui {
         if (this.current && this.typing.has(this.current)) this.drawBorder()
         this.updateTitle()
         this.screen.render()
-      }, 80)
+      }, 100)
     } else if (!on && this.typingTimer) { clearInterval(this.typingTimer); this.typingTimer = undefined }
   }
 
@@ -1800,9 +1801,9 @@ export class Ui {
     for (const t of tabs) {
       const name = truncate(t.name, nameW)
       const shown = t.i === this.active && !this.pickerOpen
-      // While they type, the spinner takes the space before the name, so the tab keeps its width; not on the chat in
-      // view, where it turns by the name on the input box's border.
-      const label = `${this.typing.has(t.jid) && !shown ? spinnerFrame() : ' '}${esc(name)}`
+      // While they type, dots in the space before the name (typingDot), so the tab keeps its width; not on the chat in
+      // view, where they come by the name over the input.
+      const label = `${this.typing.has(t.jid) && !shown ? typingDot() : ' '}${esc(name)}`
       const text = ` ${name}${t.badge ? ' ' + t.badge : ''}${close} `
       const w = strWidth(text)
       const closeX0 = close ? x + w - 2 : x + w
@@ -2118,8 +2119,8 @@ export class Ui {
    * the colour it has as a sender in groups (bold with unread messages, the filter's words underlined), 👀 while the
    * person is online, "·" when it has a tab, and at the right edge when the last message was (fmtWhenAt). On the
    * second, under the name, the unread count, in WhatsApp's green, or without unread messages the person's number or
-   * the group's size (chatNumber), and "a escrever…" while someone types there. The second row comes in its parts (see
-   * pickerParts).
+   * the group's size (chatNumber), and "a escrever" with dots coming one after another while someone types there. The
+   * second row comes in its parts (see pickerParts).
    */
   private pickerRows(c: ChatRow, width: number, slot: number): [string, [string, boolean][]] {
     const [top, bottom] = this.avatarCells(c, slot)
@@ -2134,7 +2135,7 @@ export class Ui {
     const first = `${left}${' '.repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(when)))}${when}`
     const count = c.unread > 0 ? t('unreadCount', c.unread) : ''
     const unread = count ? `{${this.green}-fg}{bold}${esc(count)}{/bold}{/${this.green}-fg}` : ''
-    const typing = this.typing.has(c.jid) ? `{${this.green}-fg}${spinnerFrame()} ${esc(t('typingShort'))}{/${this.green}-fg}` : ''
+    const typing = this.typing.has(c.jid) ? `{${this.green}-fg}${esc(t('typingWord'))}${typingDots()}{/${this.green}-fg}` : ''
     const number = this.chatNumber(c)
     return [first, [[bottom, false], [` ${[unread || (number && dim(esc(number))), typing].filter(Boolean).join('  ')}`, true]]]
   }
@@ -2343,7 +2344,7 @@ export class Ui {
     this.screen.render()
   }
 
-  // Window title: the active chat, with the typing spinner in front while someone types, or else a dot while there
+  // Window title: the active chat, with dots coming in front while someone types (typingDot), or else a dot while there
   // are unread messages in any chat. In Herdr, where the title is the agent's name, the name alone: the agent's status
   // says the rest.
   private titleShown = ''
@@ -2352,7 +2353,7 @@ export class Ui {
   private updateTitle() {
     const unread = store.listChats().filter(c => c.unread > 0 && (this.fixed ? c.jid === this.current : !c.archived))
     const typing = [...this.typing].filter(jid => !this.fixed || jid === this.current).map(jid => chatName(jid))
-    const mark = inHerdr ? '' : typing.length ? `${spinnerFrame()} ` : unread.length ? '● ' : ''
+    const mark = inHerdr ? '' : typing.length ? `${typingDot()} ` : unread.length ? '● ' : ''
     const title = `${mark}${this.current ? chatName(this.current) : 'wassup'}`
     if (title !== this.titleShown) { this.titleShown = title; this.screen.title = title; titleHerdr(title) }
     // In Herdr, alone in its tab, the tab takes the chat's first name, with no state.
@@ -3696,9 +3697,9 @@ export class Ui {
 
   /**
    * The two rows over the text being written. In a chat, the other side's next message, still to come: a bubble in
-   * their messages' grey with the chat's name in its colour, bold, its 👀 while the person is online (in a group one
-   * per member online, up to EYES_MAX), and how they are, faint: the braille spinner and "a escrever…" while someone
-   * there types, "online", or when they were last seen (lastSeen); while the messages above are scrolled up, a faint
+   * their messages' grey with the chat's name in its colour, bold, and dots coming one after another while someone
+   * there types; beside the bubble, as their messages' time, their 👀 while they're online (in a group one per member
+   * online, up to EYES_MAX), or, offline, when they were last seen. While the messages above are scrolled up, a faint
    * line on from it, with how many messages are below. Then a blank row, as between messages. With the chat list open
    * or a search, a blank row and a faint rule over the line, with the search's count (borderHeader).
    */
@@ -3716,17 +3717,17 @@ export class Ui {
     const group = jid.endsWith('@g.us')
     const eyes = h !== '─' ? 0 : group ? Math.min(EYES_MAX, this.groupOnline.get(jid) ?? 0) : this.online.has(jid) ? 1 : 0
     const seen = group ? undefined : store.getState<number>(`seen:${jid}`)
-    const state = this.typing.has(jid) ? `${spinnerFrame()} ${t('typingShort')}`
-      : !group && this.online.has(jid) ? t('online')
-      : seen ? (daysAgo(seen) <= 0 ? t('lastSeenToday', fmtTime(seen)) : t('lastSeen', fmtWhenAt(seen))) : ''
+    // While they type, dots after the name (typingDots), in a fixed width so the bubble keeps its size.
+    const state = this.typing.has(jid) ? ` ${typingDots()}` : ''
+    // Outside the bubble, as their messages' time: while they're online their 👀, offline when they were last seen.
+    const after = this.online.has(jid) || !seen ? ' 👀'.repeat(eyes) : ` ${faint(esc(fmtWhenAt(seen)))}`
     // As their messages: the panel's padding column, then the bubble, a spare column on either side of the text.
-    const marks = ' 👀'.repeat(eyes)
-    const room = Math.max(6, width - 4 - strWidth(marks) - (state ? 3 + strWidth(state) : 0))
+    const room = Math.max(6, width - 4 - visibleWidth(after) - strWidth(state))
     const name = truncate(chatName(jid), room)
     const color = colorFor(jid), bg = this.bubbleBg.theirs
-    const text = `{${color}-fg}{bold}${esc(name)}{/bold}{/${color}-fg}${marks}${state ? dim(esc(` · ${state}`)) : ''}`
+    const text = `{${color}-fg}{bold}${esc(name)}{/bold}{/${color}-fg}${state ? dim(esc(state)) : ''}`
     this.borderName = { x0: 2, x1: 2 + strWidth(name) }
-    const bubble = ` {${bg}-bg} ${text} {/${bg}-bg}`
+    const bubble = ` {${bg}-bg} ${text} {/${bg}-bg}${after}`
     // Scrolled up: the bubble isn't the last thing said, and a line on from it says so, with how many are below.
     let rest = ''
     this.borderBelow = Infinity

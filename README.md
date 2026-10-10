@@ -39,19 +39,20 @@ texts, the emoji names and the language of the writing suggestions.
 
 The tab bar at the top with the connection state on the right, messages across the full width under it, and under
 them, as the conversation's next two messages, the other side's still to come and yours being written. The first is a
-bubble in their messages' grey with the chat's name in the colour it has in groups, 👀 after it while the person is
-online (in a group one per member online, up to five, among the 30 who wrote most recently), and, faint, "typing…"
-with a braille spinner while they type, "online", or when they were last seen, which the server keeps as WhatsApp
-tells it; while the messages are scrolled up, a line on from it says how many are below. Under it you write on your
-bubbles' green, in a band as wide as your bubbles can be, so the text wraps where the message will, growing upwards
-with it; when it's sent, the conversation first moves up to make room for it, and then the band narrows to the bubble
-and rises into that room. Beyond the bubbles, no backgrounds of its own: the colours are the terminal theme's, and on
-startup the terminal is asked for its real background colour to pick light or dark shades.
+bubble in their messages' grey with the chat's name in the colour it has in groups and, faint, dots coming one after
+another (`.`, `..`, `...`) while they type; beside it, as their messages' time, 👀 while the person is online (in a
+group one per member online, up to five, among the 30 who wrote most recently), or, while they're offline, when they
+were last seen, which the server keeps as WhatsApp tells it; while the messages are scrolled up, a line on from it
+says how many are below. Under it you write on your bubbles' green, in a band as wide as your bubbles can be, so the
+text wraps where the message will, growing upwards with it; when it's sent, the conversation first moves up to make
+room for it, and then the band narrows to the bubble and rises into that room. Beyond the bubbles, no backgrounds of
+its own: the colours are the terminal theme's, and on startup the terminal is asked for its real background colour to
+pick light or dark shades.
 
 - **Tabs**: one per open chat, with the unread count in red and an `×` to close. Tab cycles through them, or, with
   only one open, opens the chat list; whatever is left unsent stays with each chat. While someone is typing in another
-  chat, a braille spinner turns before its name in the tab. New messages in a chat without a tab open one without
-  activating it, with a passing notice over it and the bell; an archived chat stays quiet.
+  chat, dots come one after another before its name in the tab (`.`, `‥`, `…`). New messages in a chat without a tab
+  open one without activating it, with a passing notice over it and the bell; an archived chat stays quiet.
 - **Chats**: `wa` starts on the list, and `/`, or a click on the other side's name over the input, opens it again,
   under the app's name, most recent at the bottom, under day separators (today, yesterday, this week, older), a blank
   row between chats. Each takes two rows, its photo from WhatsApp on the left of both (four cells by two, real pixels
@@ -59,13 +60,14 @@ startup the terminal is asked for its real background colour to pick light or da
   colour, 👀 while the person is online, and at the right edge when the last message was (`21:35`, `ontem 21:35`, `12
   set 21:35`); on a wide screen the list stops at 60 columns, so the time stays near the name. On the second, under
   the name, the unread count, or without unread messages the person's number (without the country code when it's the
-  same as mine) or a group's number of members, and "typing…" while someone types. Photos, "abouts" and group sizes
-  are asked of WhatsApp for the chats in view, at most once a day, and kept; a click on a photo opens it large, with
-  its description, as images do. Typing after `wassup ❯` filters it word by word, ignoring accents and case, with the
-  matches underlined; Enter, Tab, → or a click opens. Ctrl+F there searches the messages of every chat instead
-  (`procurar ❯`, again or Esc back to the names): from two characters on, the list holds those that have all the
-  words, the most recent at the bottom, each as its chat, who wrote it and when, and two lines of its text from a
-  little before the match, the matches in reverse video; Enter or a click opens the chat on that message.
+  same as mine) or a group's number of members, and "typing" with dots coming one after another while someone types.
+  Photos, "abouts" and group sizes are asked of WhatsApp for the chats in view, at most once a day, and kept; a click
+  on a photo opens it large, with its description, as images do. Typing after `wassup ❯` filters it word by word,
+  ignoring accents and case, with the matches underlined; Enter, Tab, → or a click opens. Ctrl+F there searches the
+  messages of every chat instead (`procurar ❯`, again or Esc back to the names): from two characters on, the list
+  holds those that have all the words, the most recent at the bottom, each as its chat, who wrote it and when, and two
+  lines of its text from a little before the match, the matches in reverse video; Enter or a click opens the chat on
+  that message.
 - **Messages**: yours on the right, each in a bubble with WhatsApp Web's colours where the terminal takes 24-bit
   colour (yours, on a dark theme, toned down to the brightness of theirs) and two discreet greys otherwise, with the
   time outside it, yours with their state in its separator (`14 06` not sent yet, `14.06` sent, `14:06` delivered;
@@ -110,7 +112,7 @@ with nothing typed, moves to the next conversation's pane or tab, in the order H
 one, opens the chat list. wassup shows up in Herdr's agent list under the chat's name alone: `working` while the other
 person types, `done` (blue) from a new message (or when they stop typing) until you look at its pane, `idle`
 otherwise; alone in its tab, the tab takes the contact's first name. Outside Herdr the terminal window title carries
-the name, with `●` for unread messages or the spinner while they type.
+the name, with `●` for unread messages or dots coming one after another (`.`, `‥`, `…`) while they type.
 
 ### Formatting and emoji
 

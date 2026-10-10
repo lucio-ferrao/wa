@@ -490,8 +490,8 @@ export class Wa extends EventEmitter<WaEvents> {
         // Typing, recording and paused are all online; only "unavailable" isn't.
         if (who !== this.me && !this.isGroup(chatJid)) {
           const on = p.lastKnownPresence !== 'unavailable'
-          // When they were last seen, kept for the chat's panel (lastSeen): now while online, and on going offline
-          // the time WhatsApp gives, when the person shares it, or now if they were online until then.
+          // When they were last seen, kept for the chat's panel (Ui.drawBorder): now while online, and on going
+          // offline the time WhatsApp gives, when the person shares it, or now if they were online until then.
           const seen = on ? Math.floor(Date.now() / 1000) : p.lastSeen ?? (this.online.get(chatJid) ? Math.floor(Date.now() / 1000) : undefined)
           if (seen) store.setState(`seen:${chatJid}`, seen)
           this.setOnline(chatJid, on)
