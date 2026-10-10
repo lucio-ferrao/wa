@@ -37,32 +37,35 @@ texts, the emoji names and the language of the writing suggestions.
 
 ## Interface
 
-The tab bar at the top with the connection state on the right, messages across the full width under it, and at the
-bottom the input in a box drawn after oh-my-pi's: on its top border the chat being written to, its name in the colour
-it has in groups, with 👀 after it while the person is online (in a group one per member online, up to five, among the
-30 who wrote most recently) and a braille spinner in place of the first while they type; the text on its bottom line
-(`╰─ … ─╯`), the box growing upwards with it. No backgrounds of its own: the colours are the terminal theme's, and on
+The tab bar at the top with the connection state on the right, messages across the full width under it, and under
+them, as the conversation's next two messages, the other side's still to come and yours being written. The first is a
+bubble in their messages' grey with the chat's name in the colour it has in groups, 👀 after it while the person is
+online (in a group one per member online, up to five, among the 30 who wrote most recently), and, faint, "typing…"
+with a braille spinner while they type, "online", or when they were last seen, which the server keeps as WhatsApp
+tells it; while the messages are scrolled up, a line on from it says how many are below. Under it you write on your
+bubbles' green, in a band as wide as your bubbles can be, so the text wraps where the message will, growing upwards
+with it; when it's sent, the conversation first moves up to make room for it, and then the band narrows to the bubble
+and rises into that room. Beyond the bubbles, no backgrounds of its own: the colours are the terminal theme's, and on
 startup the terminal is asked for its real background colour to pick light or dark shades.
 
 - **Tabs**: one per open chat, with the unread count in red and an `×` to close. Tab cycles through them, or, with
   only one open, opens the chat list; whatever is left unsent stays with each chat. While someone is typing in another
   chat, a braille spinner turns before its name in the tab. New messages in a chat without a tab open one without
   activating it, with a passing notice over it and the bell; an archived chat stays quiet.
-- **Chats**: `wa` starts on the list, and `/`, or a click on the chat's name on the input box's border, opens it
-  again, under the app's name, most recent at the bottom, under day separators (today, yesterday, this week, older), a
-  blank row between chats. Each takes two rows, its photo from WhatsApp on the left of both (four cells by two, real
-  pixels with Kitty, half-blocks otherwise; its initials on its colour without one). On the first row, the name in its
+- **Chats**: `wa` starts on the list, and `/`, or a click on the other side's name over the input, opens it again,
+  under the app's name, most recent at the bottom, under day separators (today, yesterday, this week, older), a blank
+  row between chats. Each takes two rows, its photo from WhatsApp on the left of both (four cells by two, real pixels
+  with Kitty, half-blocks otherwise; its initials on its colour without one). On the first row, the name in its
   colour, 👀 while the person is online, and at the right edge when the last message was (`21:35`, `ontem 21:35`, `12
   set 21:35`); on a wide screen the list stops at 60 columns, so the time stays near the name. On the second, under
   the name, the unread count, or without unread messages the person's number (without the country code when it's the
   same as mine) or a group's number of members, and "typing…" while someone types. Photos, "abouts" and group sizes
   are asked of WhatsApp for the chats in view, at most once a day, and kept; a click on a photo opens it large, with
-  its description, as images do. Typing, with `wassup` on the border, filters it word by word, ignoring accents and
-  case, with the matches underlined; Enter, Tab, → or a click opens. Ctrl+F there searches the messages of every chat
-  instead (`procurar` on the border, again or Esc back to the names): from two characters on, the list holds those
-  that have all the words, the most recent at the bottom, each as its chat, who wrote it and when, and two lines of
-  its text from a little before the match, the matches in reverse video; Enter or a click opens the chat on that
-  message.
+  its description, as images do. Typing after `wassup ❯` filters it word by word, ignoring accents and case, with the
+  matches underlined; Enter, Tab, → or a click opens. Ctrl+F there searches the messages of every chat instead
+  (`procurar ❯`, again or Esc back to the names): from two characters on, the list holds those that have all the
+  words, the most recent at the bottom, each as its chat, who wrote it and when, and two lines of its text from a
+  little before the match, the matches in reverse video; Enter or a click opens the chat on that message.
 - **Messages**: yours on the right, each in a bubble with WhatsApp Web's colours where the terminal takes 24-bit
   colour (yours, on a dark theme, toned down to the brightness of theirs) and two discreet greys otherwise, with the
   time outside it, yours with their state in its separator (`14 06` not sent yet, `14.06` sent, `14:06` delivered;
@@ -73,19 +76,20 @@ startup the terminal is asked for its real background colour to pick light or da
   downloaded yet shows `⤓`: a click fetches it into the app's media folder, where it stays, and the mark goes; once
   there, a click opens it with `xdg-open` (`open` on macOS), except images and stickers, which open in a popup in the
   client, as large as it fits, with the local model's description under them, as do link previews; any key or click
-  closes it. ↑ selects a message: typing replies to it, `:` reacts, Delete opens one of yours for editing. Mentions
-  show the person's first name in their colour (`@Ana`); a click on one, or in a group on a member's name, opens the
-  chat with them; a click on a pin (`📌 pinned a message`) goes to the message it's about. The `☺` next to a message
-  under the pointer opens its quick reactions; a double click, dragging it to the right, or → with it selected, starts
-  a reply. Ctrl+F searches the open chat's whole history, accents and case aside: the border says `procurar`, the
-  matches are shown in reverse video and the most recent one selected, ↑ goes to an older one and ↓ to a newer one,
-  with a count on the border; Enter stays on it, Esc closes.
-- **Input**: grows with the text up to half the screen; what's being replied to, reacted to or edited shows on its
-  border after the chat's name; Enter sends, Shift+Enter or Ctrl+J start a new line, and pasting several lines keeps
-  them. Ctrl-U clears, Shift-Backspace deletes a word (with the Kitty keyboard protocol). `:` and a letter open the
-  emoji list; ↑/↓, Enter, Tab, → or a click pick one. In a group, `@` lists those who wrote in it, most recent first,
-  narrowed by the start of any of their names (`@lem` finds Rita Lemos); the one picked goes in as `@Rita` (the whole
-  name when two share the first), and the message goes out mentioning them, as the phone does.
+  closes it. ↑ selects a message: typing replies to it, `:` reacts (erasing what was typed, down to nothing, drops the
+  reply or the reaction), Delete opens one of yours for editing. Mentions show the person's first name in their colour
+  (`@Ana`); a click on one, or in a group on a member's name, opens the chat with them; a click on a pin (`📌 pinned a
+  message`) goes to the message it's about. The `☺` next to a message under the pointer opens its quick reactions; a
+  double click, dragging it to the right, or → with it selected, starts a reply. Ctrl+F searches the open chat's whole
+  history, accents and case aside: the input becomes `procurar ❯`, the matches are shown in reverse video and the most
+  recent one selected, ↑ goes to an older one and ↓ to a newer one, with a count on the rule above the input; Enter
+  stays on it, Esc closes.
+- **Input**: grows with the text up to half the screen; what's being replied to, reacted to or edited shows on the
+  band's first row; Enter sends, Shift+Enter or Ctrl+J start a new line, and pasting several lines keeps them. Ctrl-U
+  clears, Shift-Backspace deletes a word (with the Kitty keyboard protocol). `:` and a letter open the emoji list;
+  ↑/↓, Enter, Tab, → or a click pick one. In a group, `@` lists those who wrote in it, most recent first, narrowed by
+  the start of any of their names (`@lem` finds Rita Lemos); the one picked goes in as `@Rita` (the whole name when
+  two share the first), and the message goes out mentioning them, as the phone does.
 - Esc closes, in order: the filter, the list, the active tab. Closing the last tab quits. Ctrl-C quits at once;
   Ctrl-R redraws the screen.
 - **Several terminals**: the first process is the server with the WhatsApp connection; the next ones connect to it

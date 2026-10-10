@@ -72,6 +72,8 @@ const STRINGS = {
   describing: { pt: 'a descrever…', en: 'describing…' },
   linkPreview: { pt: 'pré-visualização', en: 'preview' },
   typingShort: { pt: 'a escrever…', en: 'typing…' },
+  lastSeenToday: { pt: 'última vez às {0}', en: 'last seen at {0}' },
+  lastSeen: { pt: 'última vez {0}', en: 'last seen {0}' },
   thisWeek: { pt: 'esta semana', en: 'this week' },
   older: { pt: 'mais antigas', en: 'older' },
   weekdays: { pt: 'dom seg ter qua qui sex sáb', en: 'Sun Mon Tue Wed Thu Fri Sat' },

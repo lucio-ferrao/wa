@@ -87,6 +87,8 @@ const CALLING_CODE = /^(?:1|7|2[07]|3[0-469]|4[013-9]|5[1-8]|6[0-6]|8[1246]|9[0-
 const callingCode = (digits: string) => CALLING_CODE.exec(digits)?.[0] ?? digits.slice(0, 3)
 /** The chat list's widest, in columns: past it, on a wide screen, when a chat's last message was would stray from its name. */
 const LIST_COLS = 60
+/** Frames, 40 ms apart, of the flight of a message just sent from where it was written to its place (flyDraft). */
+const FLY_FRAMES = 5
 /** How long, in seconds, WhatsApp lets a message be edited after it was sent. */
 const EDIT_WINDOW = 15 * 60
 /** A message's text without the "(editada)" line an edit leaves at its end. */
@@ -215,13 +217,24 @@ export class Ui {
   private floatOff = ''
   /** The correction floating right above the word it replaces. */
   private ghostBox!: blessed.Widgets.BoxElement
-  /** The input box's top border, with the name of the chat the text goes to (drawBorder). */
+  /**
+   * The two rows above the text being written (drawBorder): the other side's next message, still to come, a bubble
+   * with their name and how they are, and a blank row under it; with the chat list open or a search, a blank row and
+   * a faint rule over the line, with the search's count.
+   */
   private ruleTop!: blessed.Widgets.BoxElement
   private ruleChar = '─'
-  /** What the border says after the chat's name: the reply, reaction or edit in progress, or the search's (drawInput). */
+  /** What the rule says over a search's line: its count (drawInput). */
   private borderHeader: string | null = null
-  /** The columns of the chat's name on the border, where a click opens the chat list. */
+  /** The columns of the other side's name, where a click opens the chat list. */
   private borderName = { x0: 0, x1: 0 }
+  /** Where the line on from the other side's bubble starts, scrolled up, with how many are below: a click goes there. */
+  private borderBelow = Infinity
+  /** The rows at the top of the input that say what's being replied to, reacted to or edited: one, or none. */
+  private headerRows = 0
+  /** The message just sent, flying from where it was written to where it lands among the messages (flyDraft). */
+  private flyBox!: blessed.Widgets.BoxElement
+  private flight: { timer: NodeJS.Timeout; text: string; frame: number; arrived: boolean; room: number } | undefined
   /** Per group, how many of its followed members are online, for as many 👀 (up to EYES_MAX). */
   private groupOnline = new Map<string, number>()
   private ghostTimer: NodeJS.Timeout | undefined
@@ -365,8 +378,8 @@ export class Ui {
   /** What's left unsent in each chat: switching tabs swaps the input, so nothing goes to the wrong person. */
   private drafts = new Map<string, { value: string; cursor: number }>()
   private reactTo: MessageRow | null = null
-  /** Columns the box's left side takes on each of the input's lines ("╰─ ", "│  "), before the text. */
-  private promptWidth = 3
+  /** Columns before the text on each of the input's lines: the panel's padding and the bubble's spare column, or a prompt. */
+  private promptWidth = 2
   private images: ImageSlot[] = []
   /** What the model says each image shows (by chat and message), null when it gave nothing; the one on its way. */
   private descriptions = new Map<string, string | null>()
@@ -417,10 +430,13 @@ export class Ui {
    * notices or state from the others; the picker switches it.
    */
   private get fixed(): boolean { return !!this.wanted || inHerdr }
-  /** Input lines: one at minimum, growing with the text up to half the screen. */
+  /**
+   * Input lines: two at minimum for the text being written in a chat (one for the list's filter or a search), growing
+   * with the text up to half the screen.
+   */
   private inputRows = 1
-  /** Lines occupied at the bottom: the input box, its top border and the input's lines. */
-  private get bottom(): number { return this.inputRows + 1 }
+  /** Lines occupied at the bottom: the two rows over the input (ruleTop) and the input's own. */
+  private get bottom(): number { return this.inputRows + 2 }
   /** Lines occupied at the top: the tab bar (1), which doesn't exist in single-chat mode. */
   private get barRows(): number { return this.fixed ? 0 : 1 }
 
@@ -477,8 +493,9 @@ export class Ui {
     this.disablePaste = enableBracketedPaste((this.screen.program as unknown as { input: Parameters<typeof enableBracketedPaste>[0] }).input, s => program._write(s))
     logger.info({ caps, images: this.mode, dark: this.dark, term: process.env.TERM }, 'terminal')
 
-    // Layout: the tab bar at the top with status on the right, messages at full width, and at the bottom the input in a
-    // box like oh-my-pi's, the chat's name on its top border, the text on its bottom line, growing upwards with it.
+    // Layout: the tab bar at the top with status on the right, messages at full width, and under them, as the next two
+    // messages, the other side's still to come (their name and how they are) and mine being written, on my bubbles'
+    // green, growing upwards with the text.
     this.tabsBar = blessed.box({
       parent: this.screen, top: 0, left: 0, width: '100%', height: 1, tags: true, mouse: true,
     })
@@ -489,16 +506,16 @@ export class Ui {
       tags: true, wrap: false, scrollable: true, alwaysScroll: true, mouse: true,
     }) as ClinesBox
     this.input = blessed.box({
-      parent: this.screen, top: `100%-${this.bottom - 1}`, left: 0, right: 0, height: this.inputRows,
-      // Each line is laid out to the box's width already, its sides at both ends: blessed is left to wrap nothing.
+      parent: this.screen, top: `100%-${this.bottom - 2}`, left: 0, right: 0, height: this.inputRows,
+      // Each line is laid out to its width already, the bubble's to the end: blessed is left to wrap nothing.
       tags: true, mouse: true, wrap: false,
     })
     // Box-drawing only with a UTF-8 locale, like the frames; otherwise plain dashes.
     this.ruleChar = caps.utf8 ? '─' : '-'
-    // No wrapping: the border fills its width, and blessed would break it at a space.
-    this.ruleTop = blessed.box({ parent: this.screen, top: `100%-${this.bottom}`, left: 0, right: 0, height: 1, tags: true, wrap: false, mouse: true })
+    // No wrapping: the rule fills its width, and blessed would break it at a space.
+    this.ruleTop = blessed.box({ parent: this.screen, top: `100%-${this.bottom}`, left: 0, right: 0, height: 2, tags: true, wrap: false, mouse: true })
     this.picker = blessed.list({
-      parent: this.screen, top: this.barRows, left: 0, right: 0, height: `100%-${this.bottom + this.barRows + 1}`, padding: { left: 1 }, hidden: true,
+      parent: this.screen, top: this.barRows, left: 0, right: 0, height: `100%-${this.bottom + this.barRows}`, padding: { left: 1 }, hidden: true,
       tags: true, keys: true, mouse: true,
       // The selected chat is marked as the active tab, bold and in the theme's strongest color, over a bubble's
       // background across the whole row (repainted in WhatsApp Web's colour where the terminal takes 24-bit colour).
@@ -512,6 +529,7 @@ export class Ui {
     this.pickerHead = blessed.box({ parent: this.screen, top: this.barRows, left: 0, right: 0, height: 1, padding: { left: 1 }, tags: true, wrap: false, hidden: true })
     // Floating over the messages (status at the top right); created last so it stays on top.
     this.toast = blessed.box({ parent: this.screen, top: 0, left: 0, width: 1, height: 1, tags: true, hidden: true })
+    this.flyBox = blessed.box({ parent: this.screen, top: 0, left: 0, width: 1, height: 1, tags: true, hidden: true, wrap: false })
     // In single-chat mode the bar is gone and messages gain the line; status goes to the floating box, on the right.
     if (this.fixed) this.tabsBar.hide()
     // Emoji suggestions, above the input and over the messages, with the highlight background to stand out.
@@ -653,10 +671,13 @@ export class Ui {
       this.lightPickerRows(i)
     })
 
-    // A click on the chat's name on the input box's border opens the chat list, as "/" does.
+    // A click on the other side's name, over the input, opens the chat list, as "/" does; on the line on from it,
+    // scrolled up, with how many messages are below, it goes down to the latest, as Ctrl+↓ does.
     this.ruleTop.on('click', (data: { x: number; y: number }) => {
       const x = data.x - num(this.ruleTop.aleft)
-      if (!this.pickerOpen && x >= this.borderName.x0 && x < this.borderName.x1) this.openPicker()
+      if (this.pickerOpen || data.y !== num(this.ruleTop.atop)) return
+      if (x >= this.borderName.x0 && x < this.borderName.x1) return this.openPicker()
+      if (x >= this.borderBelow && this.current) this.toLatest()
     })
     this.tabsBar.on('click', (data: { x: number; y: number }) => {
       const x = data.x - num(this.tabsBar.aleft)
@@ -760,7 +781,7 @@ export class Ui {
       if (!this.pickerOpen) this.setFocus('input')
       {
         const x = data.x - num(this.input.aleft) - num(this.input.ileft) - this.promptWidth
-        const row = this.inputTop + data.y - num(this.input.atop) - num(this.input.itop)
+        const row = this.inputTop + data.y - num(this.input.atop) - num(this.input.itop) - this.headerRows
         let pos = 0
         for (let r = 0; r < Math.min(row, this.inputLines.length); r++) pos += this.inputLines[r]!.length
         const line = this.inputLines[row]
@@ -1036,12 +1057,7 @@ export class Ui {
     if (k === 'pageup') { this.msgBox.scroll(-(this.innerHeight() - 1)); if (this.msgBox.childBase === 0) this.loadOlder(); return this.screen.render() }
     if (k === 'pagedown') { this.msgBox.scroll(this.innerHeight() - 1); return this.screen.render() }
     // Ctrl+↓ or Ctrl+PgDn: straight to the latest message, leaving any selection.
-    if ((k === 'C-down' || k === 'C-pagedown') && !this.pickerOpen && this.current) {
-      if (this.selected) this.select(null)
-      this.atBottom = true
-      this.dirtyMessages = true
-      return this.renderNow()
-    }
+    if ((k === 'C-down' || k === 'C-pagedown') && !this.pickerOpen && this.current) return this.toLatest()
     // Tab cycles through the open tabs (in Herdr, the panes or tabs of the other conversations); with the picker
     // open it goes back to the active tab. New chats open with "/".
     // With text in the input, Tab accepts the suggestion in view: the emoji list, or the model's; with no text, it
@@ -1098,7 +1114,12 @@ export class Ui {
         }
         if ((k === 'enter' || k === 'return') && !(this.suggestFace && this.suggestIndex === 0)) return this.acceptSuggestion()
       }
-      if (k === 'enter' || k === 'return') { const v = this.inputValue; if (v) this.noteWriting(); this.inputValue = ''; this.cursor = 0; this.stopComposing(); this.updateSuggestions(); this.drawInput(); this.screen.render(); return void this.submit(v) }
+      if (k === 'enter' || k === 'return') {
+        const v = this.inputValue, draft = this.draftShown()
+        if (v) this.noteWriting()
+        this.inputValue = ''; this.cursor = 0; this.stopComposing(); this.updateSuggestions(); this.drawInput(); this.screen.render()
+        return void this.submit(v, draft)
+      }
       // Right after accepting a suggestion that ended mid-word, a letter or digit starts a new word: it goes in
       // with a space before it. Space and punctuation follow directly.
       if (this.accepted === this.inputValue && this.cursorAtEnd() && ch && /^[\p{L}\p{N}]$/u.test(ch) && !key.ctrl && !key.meta) {
@@ -1106,6 +1127,16 @@ export class Ui {
         this.cursor++
       }
       const e = edit(this.inputValue, this.cursor, k, ch, key)
+      // Erasing a reply's or a reaction's text down to nothing, or Backspace with nothing left, drops the reply or the
+      // reaction with it.
+      if ((this.replyTo || this.reactTo) && (this.inputValue ? !!e && !e.value : k === 'backspace')) {
+        this.replyTo = this.reactTo = null
+        this.inputValue = ''
+        this.cursor = 0
+        this.updateSuggestions()
+        this.drawInput()
+        return this.screen.render()
+      }
       if (!e) { if (k === 'up') this.moveSelection(-1); return }
       // Only the text changing spends the promised space; moving the cursor (→ at the end, with no suggestion) leaves it unspent.
       if (e.value !== this.inputValue) { this.accepted = undefined; this.promoteActive(); this.noteWriting() }
@@ -1472,7 +1503,7 @@ export class Ui {
     return row.text.split('\n')[0] || `[${row.type}]`
   }
 
-  private async submit(v: string) {
+  private async submit(v: string, draft?: { lines: string[]; top: number }) {
     const text = emojify(v.trim())
     // Reaction in progress: what was typed is the emoji (empty removes the reaction), and it goes to the chosen message.
     const reactTo = this.reactTo
@@ -1515,6 +1546,7 @@ export class Ui {
       this.drawInput()
       this.screen.render()
       const { text: out, mentions } = this.withMentionIds(jid, text)
+      if (draft && !emojiOnly(text)) this.flyDraft(out, draft)
       await this.wa.send(jid, out, replyTo?.id, mentions)
       // My own message only appears once the server echoes it back; the most recent one of mine with the heart is then searched for.
       if (reaction(text)) this.heartFor(r => r.from_me === 1 && r.text === text && Date.now() - r.ts * 1000 < 30000, text)
@@ -2015,7 +2047,7 @@ export class Ui {
     // Never shorter than one line: blessed skips an element of zero height altogether, leaving what was drawn there
     // and the list's scroll state stale until the next refresh. The app's name heads it always, however small the
     // terminal: big (WORDMARK) with a UTF-8 locale, on one line otherwise; the list takes what's left under it.
-    const panel = num(this.screen.height) - this.bottom - this.barRows - 1
+    const panel = num(this.screen.height) - this.bottom - this.barRows
     const rows = Math.max(1, items.length)
     const big = this.ruleChar === '─'
     const head = big ? WORDMARK.length : 1
@@ -2315,9 +2347,18 @@ export class Ui {
     return num(this.msgBox.height) - num(this.msgBox.iheight)
   }
 
+  /** Straight to the latest message, leaving any selection. */
+  private toLatest() {
+    if (this.selected) this.select(null)
+    this.atBottom = true
+    this.dirtyMessages = true
+    this.renderNow()
+  }
+
   private updateAtBottom() {
     const total = this.msgBox._clines?.length ?? 0
-    this.atBottom = this.msgBox.childBase + this.innerHeight() >= total
+    const at = this.msgBox.childBase + this.innerHeight() >= total
+    if (at !== this.atBottom || !at) { this.atBottom = at; this.drawBorder() }
   }
 
   // ---------- drawing ----------
@@ -2661,16 +2702,20 @@ export class Ui {
   }
 
   private drawInput() {
-    // The text is written inside the box, its last line on the box's bottom line ("╰─ … ─╯"), those above it between
-    // "│"s, one line at minimum, growing with the text, wrapped by word (never mid-word). Who it goes to is on the
-    // box's top border (drawBorder). When the text has more lines than fit, the ones around the cursor are shown, with
-    // the cursor on the bottom one whenever possible. With "chats" open, the same line is used to type the filter.
-    // When replying, reacting or editing, the border says which message after the chat's name (borderHeader), so the
-    // input itself keeps its rows for the text.
+    // In a chat the text is written as my next message: on my bubbles' green, a band as wide as my bubbles can be,
+    // so it wraps where the message will, one line at minimum, growing upwards with the text, wrapped by word (never
+    // mid-word); what's being replied to, reacted to or edited on a row of its own at the band's top. Who it goes to
+    // is right above it (drawBorder). When the text has more lines than fit, the ones around the cursor are shown,
+    // with the cursor on the bottom one whenever possible. With the chat list open, or searching (Ctrl+F), the line
+    // is the filter's or the search's, plain, after "wassup ❯" or "procurar ❯".
     const W = num(this.input.width)
-    const pw = this.promptWidth
-    // Searching the chat (Ctrl+F), the line is the search's, the border saying so.
+    // Searching the chat (Ctrl+F), the line is the search's, the rule above saying how it goes.
     const searching = !!this.search && !this.pickerOpen
+    const plain = this.pickerOpen || searching || !this.current
+    const who = this.pickerOpen ? (this.pickerSearch ? t('search') : APP) : searching ? t('search') : ''
+    const pw = this.promptWidth = plain ? 1 + (who ? strWidth(who) + 1 : 0) + 2 : 2
+    // My bubbles' widest: they stop short of the time and its mark, with a cell of gap (see renderMessages).
+    const stampW = visibleWidth(myTime(Date.now() / 1000, 0)) + 1
     const target = this.pickerOpen || searching ? null : this.replyTo ?? this.reactTo ?? this.editing
     const found = searching && this.search!.query ? (this.search!.hits.length ? t('searchHeader', this.search!.at + 1, this.search!.hits.length) : t('searchNone')) : null
     const header = searching ? (found ? `${t('search')} · ${found}` : t('search')) : (!target ? null : this.editing
@@ -2683,8 +2728,7 @@ export class Ui {
     // floating on the line above the word, starting on its column. Tab accepts. Every wrong passage the model found
     // is underlined in yellow while it applies; what floats is the cursor's one (ghostShown).
     const view = searching ? null : this.ghostShown()
-    // The text between the box's sides: "╰─ " or "│  " before it, " ─╯" or "  │" after.
-    const width = Math.max(4, W - pw - 3)
+    const width = Math.max(4, plain ? W - pw - 1 : W - 4 - stampW)
     const chars = graphemes(this.pickerOpen ? this.filter : searching ? this.search!.query : this.inputValue)
     const cursor = Math.min(this.pickerOpen ? this.filterCursor : searching ? this.search!.cursor : this.cursor, chars.length)
     const lines = wrapChars(chars, width)
@@ -2721,10 +2765,12 @@ export class Ui {
         ghostCol = Math.max(0, Math.min(strWidth(lines[wl]!.slice(0, at).join('')), width - strWidth(ghostAbove)))
       }
     }
-    // The input grows with the text, up to half the screen.
-    const rows = Math.max(1, Math.min(lines.length, Math.floor(num(this.screen.height) / 2)))
+    // The band takes two rows at least, and grows with the text, up to half the screen, a row more for the header at
+    // its top; the plain line, one.
+    this.headerRows = header && !plain ? 1 : 0
+    const rows = Math.max(plain ? 1 : 2 + this.headerRows, Math.min(lines.length + this.headerRows, Math.floor(num(this.screen.height) / 2)))
     if (rows !== this.inputRows) this.resizeInput(rows)
-    const rowsAvail = rows
+    const rowsAvail = Math.max(1, rows - this.headerRows)
     this.inputLines = lines
     this.inputTop = Math.max(0, Math.min(row - (rowsAvail - 1), lines.length - rowsAvail))
     const showCursor = this.focus === 'input' || this.focus === 'picker'
@@ -2764,26 +2810,100 @@ export class Ui {
       return before + '{inverse}' + esc(under) + '{/inverse}' + paint(line.slice(col + 1), from + col + 1)
     }
     const visible = lines.slice(this.inputTop, this.inputTop + rowsAvail)
-    const [v, bl, br] = this.ruleChar === '─' ? ['│', '╰', '╯'] : ['|', '+', '+']
-    const out = visible.map((l, i) => {
-      const last = i === visible.length - 1
-      const text = render(l, this.inputTop + i)
-      const pad = ' '.repeat(Math.max(0, width - visibleWidth(text)))
-      return `${faint(esc(last ? `${bl}${this.ruleChar} ` : `${v}  `))}${text}${pad}${faint(esc(last ? ` ${this.ruleChar}${br}` : `  ${v}`))}`
-    })
+    let out: string[]
+    if (plain) {
+      const prompt = ` ${who ? `{${this.green}-fg}${esc(who)}{/${this.green}-fg} ` : ''}❯ `
+      out = visible.map((l, i) => (this.inputTop + i === 0 ? prompt : ' '.repeat(pw)) + render(l, this.inputTop + i))
+    } else {
+      // Each row a stretch of the band, its spare column on either side; the background opened again after the
+      // cursor, whose inverse closes it, and every tag closed at the band's end ({/}), or blessed would carry the
+      // background on to the row's end.
+      const bg = this.bubbleBg.mine
+      const band = (s: string) => ` {${bg}-bg} ${s.replace(/\{\/inverse\}/g, `{/inverse}{${bg}-bg}`)}${' '.repeat(Math.max(0, width - visibleWidth(s)))} {/}`
+      out = visible.map((l, i) => band(render(l, this.inputTop + i)))
+      while (out.length < rowsAvail) out.push(band(''))
+      if (this.headerRows) out.unshift(band(dim(esc(truncate(header!, width)))))
+    }
     this.input.setContent(out.join('\n'))
-    this.borderHeader = header
+    this.borderHeader = plain ? header : null
     this.drawBorder()
     // The correction floats one line above its word's line, when that line is in view: the input takes the last
     // `rows` lines, the prompt its first columns, after the padding.
     if (ghostAbove && ghostLine >= this.inputTop && ghostLine < this.inputTop + rowsAvail) {
-      this.ghostBox.top = num(this.screen.height) - rows + (ghostLine - this.inputTop) - 1
+      this.ghostBox.top = num(this.screen.height) - rows + this.headerRows + (ghostLine - this.inputTop) - 1
       // A cell of its background on either side, the word itself on the column of the one it replaces.
       this.ghostBox.left = num(this.input.aleft) + num(this.input.ileft) + pw + ghostCol - 1
       this.ghostBox.width = strWidth(ghostAbove) + 2
       this.ghostBox.setContent(` ${dim(italic(esc(ghostAbove)))}`)
       this.ghostBox.show()
     } else this.ghostBox.hide()
+  }
+
+  /** The text being written as the band shows it, line by line, and the screen row of its first line; none outside a chat. */
+  private draftShown(): { lines: string[]; top: number } | undefined {
+    if (!this.current || this.pickerOpen || this.search || !this.inputValue.trim()) return undefined
+    const rows = Math.max(1, this.inputRows - this.headerRows)
+    const lines = this.inputLines.slice(this.inputTop, this.inputTop + rows).map(l => l.filter(c => c !== '\n').join('').replace(/\s+$/, ''))
+    return { lines, top: num(this.input.atop) + this.headerRows }
+  }
+
+  /**
+   * The message just sent goes from where it was written to where it lands among the messages. First the
+   * conversation moves up, a row at a time, to make room for it (renderMessages), the text still where it was written;
+   * then, on my bubbles' green, the band narrows to the bubble's width, against its right edge, and rises into that
+   * room (FLY_FRAMES frames, eased). It stays there until the message itself is drawn, two seconds at most.
+   */
+  private flyDraft(text: string, from: { lines: string[]; top: number }) {
+    this.landed()
+    const W = num(this.screen.width)
+    const right = W - 1 - (visibleWidth(myTime(Date.now() / 1000, 0)) + 1)
+    const inner = Math.max(1, ...from.lines.map(l => strWidth(l)))
+    const n = from.lines.length, bg = this.bubbleBg.mine
+    const left0 = 1, left1 = Math.max(1, right - inner - 2)
+    const flight = { timer: undefined as unknown as NodeJS.Timeout, text, frame: 0, arrived: false, room: 0 }
+    const draw = (left: number, top: number) => {
+      const w = right - left
+      this.flyBox.left = left
+      this.flyBox.top = top
+      this.flyBox.width = w
+      this.flyBox.height = n
+      this.flyBox.setContent(from.lines.map(l => `{${bg}-bg} ${esc(l)}${' '.repeat(Math.max(0, w - 2 - strWidth(l)))} {/${bg}-bg}`).join('\n'))
+      this.flyBox.show()
+      this.flyBox.setFront()
+    }
+    // Where it lands: the message's first row, once drawn, or the room made for it, the n + 1 last rows.
+    const landing = () => {
+      let at = this.lineMap.findIndex(r => r?.from_me === 1 && r.text === text)
+      if (at < 0) at = this.lineMap.length - (n + 1)
+      const real = this.msgBox._clines?.ftor?.[at]?.[0] ?? at
+      return num(this.msgBox.atop) + num(this.msgBox.itop) + real - this.msgBox.childBase
+    }
+    this.flight = flight
+    draw(left0, from.top)
+    this.screen.render()
+    flight.timer = setInterval(() => {
+      if (flight.room < n + 1 && !flight.arrived) { flight.room++; this.dirtyMessages = true; return this.renderNow() }
+      clearInterval(flight.timer)
+      const top1 = landing()
+      flight.timer = setInterval(() => {
+        const p = ++flight.frame / FLY_FRAMES, e = p * p * (3 - 2 * p)
+        draw(Math.round(left0 + (left1 - left0) * e), Math.round(from.top + (top1 - from.top) * e))
+        if (flight.frame >= FLY_FRAMES) { clearInterval(flight.timer); if (flight.arrived) return this.landed() }
+        this.screen.render()
+      }, 40)
+    }, 30)
+    setTimeout(() => { if (this.flight === flight) this.landed() }, 2000)
+  }
+
+  /** The flight is over: the message drawn in its place, or, the time for it run out, its room given back. */
+  private landed(render = true) {
+    const f = this.flight
+    if (!f) return
+    clearInterval(f.timer)
+    this.flight = undefined
+    this.flyBox.hide()
+    this.dirtyMessages = true
+    if (render) this.renderNow()
   }
 
   /**
@@ -2815,10 +2935,10 @@ export class Ui {
   private resizeInput(rows: number) {
     this.inputRows = rows
     this.input.height = rows
-    this.input.top = `100%-${this.bottom - 1}`
+    this.input.top = `100%-${this.bottom - 2}`
     this.ruleTop.top = `100%-${this.bottom}`
     this.msgBox.height = `100%-${this.bottom + this.barRows}`
-    this.picker.height = `100%-${this.bottom + this.barRows + 1}`
+    this.picker.height = `100%-${this.bottom + this.barRows}`
     this.dirtyMessages = true
     this.dirtyTabs = true
     if (this.suggestions.length) this.drawSuggestions()
@@ -3042,6 +3162,14 @@ export class Ui {
       for (let i = bubbleFrom; i < lines.length; i++) lines[i] = decorate(lines[i]!, row)
       push('', null)
     }
+    // Room for the message just sent while it's on its way (flyDraft), made a row at a time; once it's here, its
+    // rows stay blank until it lands in them, so it isn't seen twice.
+    const f = this.flight
+    if (f) {
+      f.arrived ||= rows.some(r => r.from_me === 1 && r.text === f.text && Date.now() - r.ts * 1000 < 60000)
+      if (!f.arrived) for (let i = 0; i < f.room; i++) push('', null)
+      else if (f.frame < FLY_FRAMES) map.forEach((r, i) => { if (r?.from_me === 1 && r.text === f.text) lines[i] = '' })
+    }
 
     // The marks go when the first marked message can no longer be edited.
     if (this.sentExpiry) clearTimeout(this.sentExpiry)
@@ -3059,6 +3187,9 @@ export class Ui {
     else if (pin) { const first = this.firstLineOf(pin.id); if (first != null) this.msgBox.scrollTo(first - pin.offset) }
     this.renderedJid = jid
     this.loadingDrawn = loading
+    // What's below the view, said over the input, follows the messages.
+    this.drawBorder()
+    if (f?.arrived && f.frame >= FLY_FRAMES) this.landed(false)
   }
 
   /** The message at the top of the view, and how far its first line is from the top (negative when it starts above). */
@@ -3486,13 +3617,15 @@ export class Ui {
       const grid = blockGrid(v.d, v.cols, v.rows)
       for (let r = 0; r < v.rows; r++) pictureRow(grid, v.cols, r, v.x, v.y + r)
     }
-    // The bubbles' cells: the message panel's, or, with the chat list open, the selected chat's row.
+    // The bubbles' cells: the message panel's and the rows under it, where the next messages are (the other side's
+    // still to come, mine being written, the one just sent flying), or, with the chat list open, the selected chat's row.
     const box = this.pickerOpen ? this.picker : this.current && !this.showingQr ? this.msgBox : null
     if (this.bubbleRgb && box) {
       const lines = this.screenRows('lines')
       const bubbles = { [this.bubbleBg.mine]: this.bubbleRgb.mine, [this.bubbleBg.theirs]: this.bubbleRgb.theirs } as Record<number, string>
-      const x0 = num(box.aleft) + num(box.ileft), y0 = num(box.atop) + num(box.itop)
-      const x1 = x0 + num(box.width) - num(box.iwidth), y1 = y0 + num(box.height) - num(box.iheight)
+      const x0 = box === this.picker ? num(box.aleft) + num(box.ileft) : 0, y0 = num(box.atop) + num(box.itop)
+      const x1 = box === this.picker ? x0 + num(box.width) - num(box.iwidth) : num(this.screen.width)
+      const y1 = box === this.picker ? y0 + num(box.height) - num(box.iheight) : num(this.screen.height)
       // blessed's attribute flags as SGR codes: bold, underline, blink, inverse, invisible, and italic (italic.ts).
       const FLAGS: [number, number][] = [[1, 1], [2, 4], [4, 5], [8, 7], [16, 8], [32, 3]]
       for (let y = y0; y < y1; y++) {
@@ -3515,31 +3648,49 @@ export class Ui {
   }
 
   /**
-   * The input box's top border, "╭── … ─╮", faint: the chat the text goes to, its name in its colour, bold, with its
-   * 👀 while the person is online (in a group one per member online, up to EYES_MAX) and the braille spinner in place
-   * of the first while someone there types; with the chat list open, the app's name, or "procurar". After it, what's
-   * being replied to, reacted to or edited, or the search's count (borderHeader).
+   * The two rows over the text being written. In a chat, the other side's next message, still to come: a bubble in
+   * their messages' grey with the chat's name in its colour, bold, its 👀 while the person is online (in a group one
+   * per member online, up to EYES_MAX), and how they are, faint: the braille spinner and "a escrever…" while someone
+   * there types, "online", or when they were last seen (lastSeen); while the messages above are scrolled up, a faint
+   * line on from it, with how many messages are below. Then a blank row, as between messages. With the chat list open
+   * or a search, a blank row and a faint rule over the line, with the search's count (borderHeader).
    */
   private drawBorder() {
     const width = num(this.screen.width)
     const h = this.ruleChar
-    const [tl, tr] = h === '─' ? ['╭', '╮'] : ['+', '+']
     const line = (s: string) => (s ? faint(esc(s)) : '')
-    const jid = this.pickerOpen ? null : this.current
-    const name = this.pickerOpen ? (this.pickerSearch ? t('search') : APP) : jid ? chatName(jid) : ''
-    const color = jid ? colorFor(jid) : this.green
-    const spin = !!jid && this.typing.has(jid)
-    const eyes = h !== '─' || !jid ? 0 : jid.endsWith('@g.us') ? Math.min(EYES_MAX, this.groupOnline.get(jid) ?? 0) : this.online.has(jid) ? 1 : 0
-    const marks = `${spin ? ` ${spinnerFrame()}` : ''}${' 👀'.repeat(Math.max(0, eyes - (spin ? 1 : 0)))}`
-    const nameW = Math.min(strWidth(name), Math.max(6, width - 4 - strWidth(marks) - 4))
-    const before = 4 + nameW + strWidth(marks) + 1
-    // " ─ " and the header in what's left, then the line on to the corner.
-    const headerRoom = width - before - 3 - 3
-    const header = this.borderHeader && headerRoom >= 4 ? truncate(this.borderHeader, headerRoom) : ''
-    const fill = Math.max(1, width - before - (header ? 3 + strWidth(header) : 0) - 1)
-    this.borderName = { x0: 4, x1: 4 + nameW }
-    const shown = `{${color}-fg}{bold}${esc(truncate(name, nameW))}{/bold}{/${color}-fg}${marks}`
-    this.ruleTop.setContent(`${line(`${tl}${h}${h} `)}${shown} ${header ? `${line(h)} ${dim(esc(header))} ` : ''}${line(`${h.repeat(fill)}${tr}`)}`)
+    const jid = this.current
+    if (this.pickerOpen || this.search || !jid) {
+      const header = this.borderHeader ? ` ${truncate(this.borderHeader, Math.max(1, width - 6))} ` : ''
+      this.borderName = { x0: 0, x1: 0 }
+      this.ruleTop.setContent(`\n${line(h.repeat(2))}${dim(esc(header))}${line(h.repeat(Math.max(0, width - 2 - strWidth(header))))}`)
+      return
+    }
+    const group = jid.endsWith('@g.us')
+    const eyes = h !== '─' ? 0 : group ? Math.min(EYES_MAX, this.groupOnline.get(jid) ?? 0) : this.online.has(jid) ? 1 : 0
+    const seen = group ? undefined : store.getState<number>(`seen:${jid}`)
+    const state = this.typing.has(jid) ? `${spinnerFrame()} ${t('typingShort')}`
+      : !group && this.online.has(jid) ? t('online')
+      : seen ? (daysAgo(seen) <= 0 ? t('lastSeenToday', fmtTime(seen)) : t('lastSeen', fmtWhenAt(seen))) : ''
+    // As their messages: the panel's padding column, then the bubble, a spare column on either side of the text.
+    const marks = ' 👀'.repeat(eyes)
+    const room = Math.max(6, width - 4 - strWidth(marks) - (state ? 3 + strWidth(state) : 0))
+    const name = truncate(chatName(jid), room)
+    const color = colorFor(jid), bg = this.bubbleBg.theirs
+    const text = `{${color}-fg}{bold}${esc(name)}{/bold}{/${color}-fg}${marks}${state ? dim(esc(` · ${state}`)) : ''}`
+    this.borderName = { x0: 2, x1: 2 + strWidth(name) }
+    const bubble = ` {${bg}-bg} ${text} {/${bg}-bg}`
+    // Scrolled up: the bubble isn't the last thing said, and a line on from it says so, with how many are below.
+    let rest = ''
+    this.borderBelow = Infinity
+    if (!this.atBottom) {
+      const base = this.msgBox.childBase + this.innerHeight()
+      const below = new Set(this.lineMap.slice(base).filter((r): r is MessageRow => !!r).map(r => r.id)).size
+      const tail = below ? ` ↓ ${below} ` : ' ↓ '
+      const fill = width - visibleWidth(bubble) - 1 - strWidth(tail) - 1
+      if (fill > 2) { rest = ` ${line(h.repeat(fill))}${dim(esc(tail))}`; this.borderBelow = visibleWidth(bubble) + 1 }
+    }
+    this.ruleTop.setContent(`${bubble}${rest}\n`)
   }
 
   private redraw() {
