@@ -520,7 +520,10 @@ export class Ui {
     this.ruleTop = blessed.box({ parent: this.screen, top: `100%-${this.bottom}`, left: 0, right: 0, height: 2, tags: true, wrap: false, mouse: true })
     this.picker = blessed.list({
       parent: this.screen, top: this.barRows, left: 0, right: 0, height: `100%-${this.bottom + this.barRows}`, padding: { left: 1 }, hidden: true,
-      tags: true, keys: true, mouse: true,
+      // Its own colours kept on the selected row (blessed would force the selection's onto every cell, a photo's
+      // half-blocks too, whose top halves then came out white): the selected row is given without them instead,
+      // but for the photo's (selectedRow).
+      tags: true, keys: true, mouse: true, invertSelected: false,
       // The selected chat is marked as the active tab, bold and in the theme's strongest color, over a bubble's
       // background across the whole row (repainted in WhatsApp Web's colour where the terminal takes 24-bit colour).
       style: { selected: { bold: true, fg: this.dark ? 'bright-white' : 'black', bg: this.bubbleBg.theirs } } as unknown as blessed.Widgets.ListElementStyle,
@@ -2191,17 +2194,26 @@ export class Ui {
     return parts.map(([text, lit]) => (lit ? on(text) : text)).join('') + (pad ? on(pad) : '')
   }
 
+  /**
+   * The selected row as the list shows it: without the colours its text was given in tags (a chat's name in its own),
+   * so the selection's, the theme's strongest, takes them; a photo's colours, written as SGR, stay.
+   */
+  private selectedRow(i: number): string {
+    return (this.pickerItems[i] ?? '').replace(/\{\/?\d+-fg\}/g, '')
+  }
+
   /** The rows that continue the one selected get its background; those that had it go back to their own look. */
   private lightPickerRows(i: number) {
     for (const j of this.pickerLit) this.picker.setItem(j as unknown as blessed.Widgets.BlessedElement, this.pickerItems[j] ?? '')
-    this.pickerLit = []
+    this.pickerLit = [i]
+    this.picker.setItem(i as unknown as blessed.Widgets.BlessedElement, this.selectedRow(i))
     for (let j = i + 1; this.pickerCont.get(j) === i; j++) {
       this.picker.setItem(j as unknown as blessed.Widgets.BlessedElement, this.litRow(j))
       this.pickerLit.push(j)
     }
     // Its rows stay in view with it: blessed only keeps the selected one, which at the bottom left them out.
     const list = this.picker as unknown as { childBase: number; childOffset: number }
-    const rows = num(this.picker.height) - num(this.picker.iheight), last = this.pickerLit.at(-1) ?? i
+    const rows = num(this.picker.height) - num(this.picker.iheight), last = this.pickerLit.at(-1)!
     if (last >= list.childBase + rows) { list.childBase = last - rows + 1; list.childOffset = i - list.childBase }
   }
 
@@ -2290,7 +2302,7 @@ export class Ui {
       if (!c || !want.has(c.jid) || this.pickerHits.has(i)) return
       const [first, second] = this.pickerRows(c, width, i)
       this.pickerItems[i] = first; this.pickerItems[i + 1] = second.map(([text]) => text).join(''); this.pickerParts.set(i + 1, second)
-      this.picker.setItem(i as unknown as blessed.Widgets.BlessedElement, first)
+      this.picker.setItem(i as unknown as blessed.Widgets.BlessedElement, this.pickerLit.includes(i) ? this.selectedRow(i) : first)
       this.picker.setItem((i + 1) as unknown as blessed.Widgets.BlessedElement, this.pickerLit.includes(i + 1) ? this.litRow(i + 1) : this.pickerItems[i + 1]!)
     })
   }
@@ -3619,7 +3631,8 @@ export class Ui {
         if (!cell) continue
         const x = left + c, held = row[x]
         const attr = held?.[0] ?? -1
-        if (held?.[1] !== cell.ch || attr >> 18 !== 0 || ((attr >> 9) & 0x1ff) !== (cell.fg < 0 ? 0x1ff : cell.fg) || (attr & 0x1ff) !== (cell.bg < 0 ? 0x1ff : cell.bg)) continue
+        // Bold is the only flag a picture's cell may carry: the selected row of the chat list has it.
+        if (held?.[1] !== cell.ch || (attr >> 18) & ~1 || ((attr >> 9) & 0x1ff) !== (cell.fg < 0 ? 0x1ff : cell.fg) || (attr & 0x1ff) !== (cell.bg < 0 ? 0x1ff : cell.bg)) continue
         cells.push({ x, y, ch: cell.ch, w: 1, sgr: `0;38;2;${rgbAt(grid.rgb, cell.fgAt)}${cell.bgAt < 0 ? '' : `;48;2;${rgbAt(grid.rgb, cell.bgAt)}`}` })
         pictures.add(y * 65536 + x)
       }
